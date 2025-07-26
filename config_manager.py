@@ -27,6 +27,10 @@ class LanguageConfig:
     auto_detect: bool
 
 @dataclass
+class OutputConfig:
+    directory: str
+
+@dataclass
 class APIConfig:
     host: str
     port: int
@@ -45,6 +49,7 @@ class WhisperConfigManager:
         self.single_worker = SingleWorkerConfig(**self.config['single_worker'])
         self.model = ModelConfig(**self.config['model'])
         self.language = LanguageConfig(**self.config['language'])
+        self.output = OutputConfig(**self.config['output'])
         self.api = APIConfig(**self.config['api'])
         
     def _load_config(self) -> Dict:
@@ -82,6 +87,10 @@ class WhisperConfigManager:
     def get_api_host_port(self) -> tuple:
         """Get API host and port"""
         return (self.api.host, self.api.port)
+    
+    def get_output_directory(self) -> str:
+        """Get the configured output directory"""
+        return self.output.directory
     
     def is_model_supported(self, model_name: str) -> bool:
         """Check if model is supported"""
@@ -130,6 +139,14 @@ class WhisperConfigManager:
             if self.single_worker.model_timeout_minutes < 1:
                 raise ValueError(f"Invalid timeout: {self.single_worker.model_timeout_minutes} minutes")
             
+            # Validate and create output directory
+            output_path = Path(self.output.directory)
+            try:
+                output_path.mkdir(parents=True, exist_ok=True)
+                print(f"📁 Output directory: {output_path.absolute()}")
+            except Exception as e:
+                raise ValueError(f"Cannot create output directory {self.output.directory}: {e}")
+            
             print(f"✅ Config validation successful")
             print(f"   Default model: {self.model.default_model}")
             print(f"   Expected VRAM: {expected_vram}GB, Configured: {self.model.vram_usage_gb}GB")
@@ -137,6 +154,7 @@ class WhisperConfigManager:
             print(f"   Auto-detect enabled: {self.language.auto_detect}")
             print(f"   Batch size: {self.model.batch_size}")
             print(f"   Model timeout: {self.single_worker.model_timeout_minutes} minutes")
+            print(f"   Output directory: {output_path.absolute()}")
             
             return True
             
