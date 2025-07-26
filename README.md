@@ -32,7 +32,7 @@ This setup was successfully tested on:
 - **CUDA Toolkit**: 11.5 (pre-installed)
 - **Python**: 3.10
 
-**Note**: The system works with mixed CUDA versions - PyTorch 2.6.0 with CUDA 11.8/12.4 libraries while your system driver supports CUDA 12.8. This is a normal and supported configuration.
+**Note**: The system works with mixed CUDA versions. For Blackwell GPUs: Native CUDA 12.8 support with PyTorch cu128 builds.
 
 ## Performance & Metrics
 
@@ -98,7 +98,7 @@ The system supports all Faster-Whisper models with automatic switching via confi
 - **CUDA Toolkit**: 11.5+ (any version compatible with your driver)
 - **Storage**: ~/output directory for transcripts and metrics
 
-**Note**: The system works with mixed CUDA versions. Tested configuration: Driver 570.86.15 (CUDA 12.8), Toolkit 11.5, PyTorch 2.6.0 with CUDA 11.8/12.4 libraries.
+**Note**: The system supports various CUDA versions. Blackwell GPUs use native CUDA 12.8, older GPUs can use CUDA 11.8.
 
 ## Installation
 
@@ -257,7 +257,7 @@ print('Faster-Whisper import successful!')
 ```
 CUDA available: True
 GPU: NVIDIA GeForce RTX 5080  # or your specific Blackwell GPU
-CUDA version: 12.4  # PyTorch CUDA version (may differ from system CUDA 12.8)
+CUDA version: 12.8  # Native PyTorch CUDA 12.8 support
 GPU Compute capability: (9, 0)  # Blackwell architecture
 Faster-Whisper import successful!
 ```
@@ -623,7 +623,7 @@ nvcc --version
 # Verify PyTorch CUDA version
 python -c "import torch; print(f'PyTorch CUDA: {torch.version.cuda}')"
 
-# For Blackwell, you need CUDA 12.4+ and matching PyTorch
+# For Blackwell with CUDA 12.8, use native cu128
 ```
 
 **Compute Capability Not Supported:**
@@ -669,17 +669,15 @@ pip install faster-whisper>=1.1.0
 # If you get CUDA runtime errors:
 pip uninstall torch torchaudio
 
-# For Blackwell GPUs with CUDA 12.8:
-pip install torch==2.6.0+cu124 torchaudio==2.6.0+cu124 --index-url https://download.pytorch.org/whl/cu124
-
-# Alternative for better compatibility:
-# pip install torch==2.6.0+cu121 torchaudio==2.6.0+cu121 --index-url https://download.pytorch.org/whl/cu121
+# For Blackwell GPUs with CUDA 12.8 (use native cu128):
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
 
 # Verify installation
 python -c "
 import torch
 print(f'CUDA available: {torch.cuda.is_available()}')
-print(f'CUDA version: {torch.version.cuda}')
+print(f'System CUDA (nvcc): Check with nvcc --version')
+print(f'PyTorch CUDA: {torch.version.cuda}')
 print(f'cuDNN version: {torch.backends.cudnn.version()}')
 "
 ```
