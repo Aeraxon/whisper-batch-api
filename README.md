@@ -32,7 +32,7 @@ This setup was successfully tested on:
 - **CUDA Toolkit**: 11.5 (pre-installed)
 - **Python**: 3.10
 
-**Note**: The system works with mixed CUDA versions - PyTorch uses CUDA 11.8 libraries while the driver supports CUDA 12.8. This is a normal and supported configuration.
+**Note**: The system works with mixed CUDA versions - PyTorch 2.6.0 with CUDA 11.8/12.4 libraries while your system driver supports CUDA 12.8. This is a normal and supported configuration.
 
 ## Performance & Metrics
 
@@ -98,7 +98,7 @@ The system supports all Faster-Whisper models with automatic switching via confi
 - **CUDA Toolkit**: 11.5+ (any version compatible with your driver)
 - **Storage**: ~/output directory for transcripts and metrics
 
-**Note**: The system works with mixed CUDA versions. Tested configuration: Driver 570.86.15 (CUDA 12.8), Toolkit 11.5, PyTorch CUDA 11.8 libraries.
+**Note**: The system works with mixed CUDA versions. Tested configuration: Driver 570.86.15 (CUDA 12.8), Toolkit 11.5, PyTorch 2.6.0 with CUDA 11.8/12.4 libraries.
 
 ## Installation
 
@@ -138,8 +138,8 @@ Both commands should work without errors before proceeding.
 
 ```bash
 # Clone the repository
-git clone https://github.com/Aeraxon/whisper-batch-api.git
-cd whisper-batch-api
+git clone <your-repo-url>
+cd whisper-batch-transcription
 
 # Create Python virtual environment
 python3.10 -m venv venv
@@ -149,7 +149,7 @@ source venv/bin/activate
 pip install --upgrade pip
 
 # Install PyTorch with CUDA 11.8 support FIRST
-pip install torch==2.7.1+cu118 torchaudio==2.7.1+cu118 --index-url https://download.pytorch.org/whl/cu118
+pip install torch==2.6.0+cu118 torchaudio==2.6.0+cu118 --index-url https://download.pytorch.org/whl/cu118
 
 # Install remaining dependencies
 pip install -r requirements.txt
@@ -160,9 +160,9 @@ pip install -r requirements.txt
 **For RTX 5090, 5080, 5070 and other Blackwell architecture GPUs:**
 
 ```bash
-#  the repository
-git clone https://github.com/Aeraxon/whisper-batch-api.git
-cd whisper-batch-api
+# Clone the repository
+git clone <your-repo-url>
+cd whisper-batch-transcription
 
 # Create Python virtual environment
 python3.10 -m venv venv
@@ -256,8 +256,8 @@ print('Faster-Whisper import successful!')
 **For Blackwell GPUs, you should see:**
 ```
 CUDA available: True
-GPU: NVIDIA GeForce RTX 5090  # or your specific Blackwell GPU
-CUDA version: 12.4  # or higher
+GPU: NVIDIA GeForce RTX 5080  # or your specific Blackwell GPU
+CUDA version: 12.4  # PyTorch CUDA version (may differ from system CUDA 12.8)
 GPU Compute capability: (9, 0)  # Blackwell architecture
 Faster-Whisper import successful!
 ```
@@ -668,7 +668,12 @@ pip install faster-whisper>=1.1.0
 ```bash
 # If you get CUDA runtime errors:
 pip uninstall torch torchaudio
-pip install torch==2.7.1+cu124 torchaudio==2.7.1+cu124 --index-url https://download.pytorch.org/whl/cu124
+
+# For Blackwell GPUs with CUDA 12.8:
+pip install torch==2.6.0+cu124 torchaudio==2.6.0+cu124 --index-url https://download.pytorch.org/whl/cu124
+
+# Alternative for better compatibility:
+# pip install torch==2.6.0+cu121 torchaudio==2.6.0+cu121 --index-url https://download.pytorch.org/whl/cu121
 
 # Verify installation
 python -c "
