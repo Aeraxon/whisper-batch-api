@@ -161,8 +161,8 @@ pip install -r requirements.txt
 
 ```bash
 # Clone the repository
-git clone <your-repo-url>
-cd whisper-batch-transcription
+git clone https://github.com/Aeraxon/whisper-batch-api.git
+cd whisper-batch-api
 
 # Create Python virtual environment
 python3.10 -m venv venv
