@@ -171,14 +171,11 @@ source venv/bin/activate
 # Upgrade pip
 pip install --upgrade pip
 
-# Install PyTorch with CUDA 12.4+ support for Blackwell
-pip install torch==2.7.1+cu124 torchaudio==2.7.1+cu124 --index-url https://download.pytorch.org/whl/cu124
+# Install PyTorch with CUDA 12.8 support (native for Blackwell GPUs)
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
 
-# Alternative: Use CUDA 12.1 if 12.4 has issues
-# pip install torch==2.7.1+cu121 torchaudio==2.7.1+cu121 --index-url https://download.pytorch.org/whl/cu121
-
-# Install remaining dependencies (use updated requirements for Blackwell)
-pip install -r requirements-blackwell.txt
+# Install remaining dependencies
+pip install -r requirements.txt
 ```
 
 **Create `requirements-blackwell.txt`:**
