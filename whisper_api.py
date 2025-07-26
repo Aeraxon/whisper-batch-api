@@ -33,9 +33,9 @@ except Exception as e:
 # Global Model Manager (uses config)
 model_manager = SmartModelManager("whisper_config.yaml")
 
-# Ensure output directory
-OUTPUT_DIR = Path.home() / "output"
-OUTPUT_DIR.mkdir(exist_ok=True)
+# Use output directory from config instead of hardcoded ~/output
+OUTPUT_DIR = Path(config.get_output_directory())
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 # Metrics CSV
 METRICS_CSV = OUTPUT_DIR / "metrics.csv"
@@ -215,14 +215,15 @@ async def health_check():
             "max_batch_size": config.get_max_batch_size(),
             "model_timeout_minutes": config.get_model_timeout_minutes(),
             "batch_size": config.get_model_batch_size(),
-            "supported_models": model_manager.get_supported_models()
+            "supported_models": model_manager.get_supported_models(),
+            "output_directory": config.get_output_directory()
         },
         "model_status": model_status,
         "shared_gpu": True,
         "worker_type": "single_optimized_with_config",
         "transcripts_saved": transcript_count,
-        "output_directory": str(OUTPUT_DIR),
-        "metrics_csv": str(METRICS_CSV)
+        "output_directory": str(OUTPUT_DIR.absolute()),
+        "metrics_csv": str(METRICS_CSV.absolute())
     }
 
 @app.post("/transcribe/batch")
@@ -466,7 +467,7 @@ async def transcribe_batch(
             "avg_time_per_file": total_time / len(files),
             "model_used": model_name,
             "files_saved": len(saved_files),
-            "output_directory": str(OUTPUT_DIR)
+            "output_directory": str(OUTPUT_DIR.absolute())
         },
         "results": results,
         "saved_files": saved_files
@@ -485,7 +486,7 @@ async def get_metrics():
     return {
         "metrics": metrics,
         "total_entries": len(metrics),
-        "csv_file": str(METRICS_CSV)
+        "csv_file": str(METRICS_CSV.absolute())
     }
 
 @app.post("/free-vram")
@@ -506,7 +507,8 @@ async def get_config():
             "model_timeout_minutes": config.get_model_timeout_minutes(),
             "batch_size": config.get_model_batch_size(),
             "supported_models": model_manager.get_supported_models(),
-            "api_host_port": config.get_api_host_port()
+            "api_host_port": config.get_api_host_port(),
+            "output_directory": config.get_output_directory()
         },
         "model_status": model_manager.get_model_status()
     }
@@ -522,7 +524,8 @@ async def reload_config():
             "new_config": {
                 "default_model": config.get_default_model(),
                 "default_language": config.get_default_language(),
-                "model_timeout_minutes": config.get_model_timeout_minutes()
+                "model_timeout_minutes": config.get_model_timeout_minutes(),
+                "output_directory": config.get_output_directory()
             }
         }
     except Exception as e:
@@ -532,4 +535,5 @@ if __name__ == "__main__":
     host, port = config.get_api_host_port()
     print(f"🚀 Starting Whisper API server on {host}:{port}")
     print(f"🔧 Using model: {config.get_default_model()}")
+    print(f"📁 Output directory: {OUTPUT_DIR.absolute()}")
     uvicorn.run(app, host=host, port=port)
