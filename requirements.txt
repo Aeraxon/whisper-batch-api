@@ -178,35 +178,6 @@ pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
 pip install -r requirements.txt
 ```
 
-**Create `requirements-blackwell.txt`:**
-```bash
-cat > requirements-blackwell.txt << 'EOF'
-# Whisper Batch Transcription API - Python Dependencies for Blackwell GPUs
-# Optimized for RTX 50XX series with CUDA 12.4+
-
-# Core ML and Audio Processing (PyTorch installed separately above)
-faster-whisper==1.1.0
-soundfile==0.13.1
-librosa==0.11.0
-numpy==2.1.2
-
-# NVIDIA CUDA Libraries (CUDA 12.4+ compatible)
-nvidia-cublas-cu12==12.6.3.3
-nvidia-cudnn-cu12==9.5.1.17
-nvidia-ml-py==12.575.51
-
-# Web API Framework
-fastapi==0.116.1
-uvicorn==0.35.0
-python-multipart==0.0.20
-aiofiles==24.1.0
-
-# Configuration and Monitoring
-PyYAML==6.0.2
-psutil==7.0.0
-EOF
-```
-
 ### 4A. CUDA Library Path Configuration (Standard)
 
 **This step is essential for the system to work properly:**
