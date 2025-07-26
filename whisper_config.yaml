@@ -19,6 +19,10 @@ language:
   default_language: "de"    # Default language for transcription
   auto_detect: true         # Enable automatic language detection
 
+# Output settings
+output:
+  directory: "./output"     # Output directory for transcripts and metrics (relative to repo root)
+
 api:
   host: "0.0.0.0"
   port: 8000
