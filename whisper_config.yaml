@@ -1,0 +1,29 @@
+system:
+  gpu_device: "cuda:0"
+  max_vram_usage: 11.5  # GB (1GB reserve for other containers)
+  shared_gpu: true  # Proxmox LXC - VRAM shared with Ollama etc.
+  
+single_worker:
+  lazy_loading: true  # Load models only when needed
+  model_timeout_minutes: 5  # Unload model after 5min of inactivity (like Ollama)
+  
+# Main model configuration - Change here to switch between large-v2 and large-v3
+model:
+  default_model: "large-v2"  # Options: "large-v2", "large-v3"
+  vram_usage_gb: 4.7        # VRAM usage for large models
+  batch_size: 4             # Optimal batch size for large models
+  expected_throughput: 3000 # Expected files per hour
+
+# Language settings
+language:
+  default_language: "de"    # Default language for transcription
+  auto_detect: true         # Enable automatic language detection
+
+api:
+  host: "0.0.0.0"
+  port: 8000
+  max_batch_size: 100
+  
+monitoring:
+  enable_basic_logging: true
+  log_level: "INFO"
