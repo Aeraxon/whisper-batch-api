@@ -1,17 +1,16 @@
-# Whisper Batch Transcription API - Python Dependencies
-# Updated for current PyTorch versions
+# Whisper Batch Transcription API - Universal Python Dependencies
+# Works with both standard GPUs (CUDA 11.8) and Blackwell GPUs (CUDA 12.8)
+# PyTorch installed separately with appropriate CUDA version
 
-# Core ML and Audio Processing
-torch==2.6.0+cu118
-torchaudio==2.6.0+cu118
+# Core ML and Audio Processing (PyTorch installed separately above)
 faster-whisper==1.1.0
 soundfile==0.13.1
 librosa==0.11.0
 numpy==2.1.2
 
-# NVIDIA CUDA Libraries (exact working versions)
-nvidia-cublas-cu12==12.9.1.4
-nvidia-cudnn-cu12==9.11.0.98
+# NVIDIA CUDA Libraries (compatible with both CUDA 11.8 and 12.8)
+nvidia-cublas-cu12==12.6.3.3
+nvidia-cudnn-cu12==9.5.1.17
 nvidia-ml-py==12.575.51
 
 # Web API Framework
@@ -23,3 +22,7 @@ aiofiles==24.1.0
 # Configuration and Monitoring
 PyYAML==6.0.2
 psutil==7.0.0
+
+# Note: PyTorch and torchaudio are installed separately with the appropriate CUDA version:
+# Standard GPUs: pip install torch==2.6.0+cu118 torchaudio==2.6.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+# Blackwell GPUs (CUDA 12.8): pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
