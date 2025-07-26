@@ -139,7 +139,7 @@ Both commands should work without errors before proceeding.
 ```bash
 # Clone the repository
 git clone https://github.com/Aeraxon/whisper-batch-api.git
-cd whisper-batch-transcription
+cd whisper-batch-api
 
 # Create Python virtual environment
 python3.10 -m venv venv
@@ -162,7 +162,7 @@ pip install -r requirements.txt
 ```bash
 #  the repository
 git clone https://github.com/Aeraxon/whisper-batch-api.git
-cd whisper-batch-transcription
+cd whisper-batch-api
 
 # Create Python virtual environment
 python3.10 -m venv venv
