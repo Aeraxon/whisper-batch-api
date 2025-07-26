@@ -63,6 +63,10 @@ class WhisperConfigManager:
         """Get the configured default language"""
         return self.language.default_language
     
+    def is_auto_detect_enabled(self) -> bool:
+        """Check if automatic language detection is enabled"""
+        return self.language.auto_detect
+    
     def get_model_batch_size(self) -> int:
         """Get the configured batch size"""
         return self.model.batch_size
@@ -130,6 +134,7 @@ class WhisperConfigManager:
             print(f"   Default model: {self.model.default_model}")
             print(f"   Expected VRAM: {expected_vram}GB, Configured: {self.model.vram_usage_gb}GB")
             print(f"   Default language: {self.language.default_language}")
+            print(f"   Auto-detect enabled: {self.language.auto_detect}")
             print(f"   Batch size: {self.model.batch_size}")
             print(f"   Model timeout: {self.single_worker.model_timeout_minutes} minutes")
             
