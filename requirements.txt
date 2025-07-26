@@ -1,0 +1,28 @@
+# Whisper Batch Transcription API - Python Dependencies
+# Generated from working installation on Ubuntu 22.04 with RTX A2000 12GB
+
+# Core ML and Audio Processing
+torch==2.7.1+cu118
+torchaudio==2.7.1+cu118
+faster-whisper==0.10.0
+soundfile==0.13.1
+librosa==0.11.0
+numpy==2.1.2
+
+# NVIDIA CUDA Libraries (exact working versions)
+nvidia-cublas-cu12==12.9.1.4
+nvidia-cudnn-cu12==9.11.0.98
+nvidia-ml-py==12.575.51
+
+# Web API Framework
+fastapi==0.116.1
+uvicorn==0.35.0
+python-multipart==0.0.20
+aiofiles==24.1.0
+
+# Configuration and Monitoring
+PyYAML==6.0.2
+psutil==7.0.0
+
+# Note: PyTorch will automatically install additional CUDA 11 dependencies
+# This is normal and expected for torch==2.7.1+cu118
