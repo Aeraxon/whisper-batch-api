@@ -234,7 +234,7 @@ Faster-Whisper import successful!
 
 ```bash
 # Create directory for transcripts and metrics
-mkdir -p ~/output
+mkdir -p output
 ```
 
 ## Configuration
