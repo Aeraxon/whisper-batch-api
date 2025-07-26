@@ -138,7 +138,7 @@ Both commands should work without errors before proceeding.
 
 ```bash
 # Clone the repository
-git clone <your-repo-url>
+git clone https://github.com/Aeraxon/whisper-batch-api.git
 cd whisper-batch-transcription
 
 # Create Python virtual environment
@@ -160,8 +160,8 @@ pip install -r requirements.txt
 **For RTX 5090, 5080, 5070 and other Blackwell architecture GPUs:**
 
 ```bash
-# Clone the repository
-git clone <your-repo-url>
+#  the repository
+git clone https://github.com/Aeraxon/whisper-batch-api.git
 cd whisper-batch-transcription
 
 # Create Python virtual environment
