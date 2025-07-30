@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 import aiofiles
 import os
 import time
+import threading
 import subprocess  # Add this import for nvidia-smi command
 from smart_model_manager import SmartModelManager
 from config_manager import WhisperConfigManager
@@ -140,43 +141,43 @@ def get_optimal_gpu_settings(gpu_name, total_vram_gb, base_model_vram=4.7, overh
         print(f"⚠️ Very low VRAM ({total_vram_gb:.1f}GB) - using minimal settings")
         return {'max_concurrent': 1, 'batch_size_multiplier': 0.5, 'vram_usage': 0.6}
     
-    # DYNAMIC FILE LENGTH SCALING: Adjust overhead based on file length
+    # DYNAMIC FILE LENGTH SCALING: More aggressive for short files
     # Shorter files need less VRAM per file, longer files need more
-    length_factor = max(0.4, min(2.5, avg_file_length_min / 8))  # 0.4x to 2.5x scaling
+    length_factor = max(0.3, min(2.5, avg_file_length_min / 10))  # 0.3x to 2.5x scaling (more aggressive)
     adjusted_overhead = BASE_OVERHEAD * length_factor
     
     # Calculate max concurrent files based on adjusted VRAM usage
     max_concurrent_by_vram = int(usable_vram / adjusted_overhead)
     
-    # Scale settings based on total VRAM amount - FIXED tiers for better scaling
+    # ULTRA AGGRESSIVE scaling for maximum VRAM utilization
     if total_vram_gb >= 80:  # Ultra high-end (H100, B200, etc.)
-        vram_usage = 0.92
+        vram_usage = 0.95
         batch_multiplier = 1.5
-        max_concurrent = min(max_concurrent_by_vram, 80)  # MUCH more aggressive (was 20)
+        max_concurrent = min(max_concurrent_by_vram, 100)  # Even more aggressive
     elif total_vram_gb >= 40:  # High-end (A100, A6000 Ada, etc.)
-        vram_usage = 0.90
+        vram_usage = 0.93
         batch_multiplier = 1.3
-        max_concurrent = min(max_concurrent_by_vram, 50)  # MUCH more aggressive (was 16)
+        max_concurrent = min(max_concurrent_by_vram, 60)   # Even more aggressive
     elif total_vram_gb >= 20:  # Performance (RTX 4090, etc.)
-        vram_usage = 0.87
+        vram_usage = 0.90
         batch_multiplier = 1.2
-        max_concurrent = min(max_concurrent_by_vram, 35)  # MUCH more aggressive (was 14)
+        max_concurrent = min(max_concurrent_by_vram, 45)   # Even more aggressive
     elif total_vram_gb >= 16:  # Upper mid-range (RTX 5080, etc.)
-        vram_usage = 0.85
+        vram_usage = 0.88
         batch_multiplier = 1.1
-        max_concurrent = min(max_concurrent_by_vram, 28)  # MUCH more aggressive (was 12)
+        max_concurrent = min(max_concurrent_by_vram, 35)   # Even more aggressive
     elif total_vram_gb >= 12:  # Mid-range (A2000, etc.)
-        vram_usage = 0.82
+        vram_usage = 0.85
         batch_multiplier = 0.9
-        max_concurrent = min(max_concurrent_by_vram, 20)  # MUCH more aggressive (was 8)
+        max_concurrent = min(max_concurrent_by_vram, 25)   # Even more aggressive
     elif total_vram_gb >= 8:   # Entry-level
-        vram_usage = 0.78
+        vram_usage = 0.82
         batch_multiplier = 0.7
-        max_concurrent = min(max_concurrent_by_vram, 12)  # MUCH more aggressive (was 6)
+        max_concurrent = min(max_concurrent_by_vram, 15)   # Even more aggressive
     elif total_vram_gb >= 4:   # Very low-end
-        vram_usage = 0.75
+        vram_usage = 0.80
         batch_multiplier = 0.6
-        max_concurrent = min(max_concurrent_by_vram, 6)   # More aggressive (was 3)
+        max_concurrent = min(max_concurrent_by_vram, 8)    # Even more aggressive
     else:  # <4GB - probably won't work but try
         vram_usage = 0.65
         batch_multiplier = 0.5
@@ -378,8 +379,88 @@ def check_vram_safety(max_concurrent, gpu_info, estimated_model_vram_gb=5.0):
     
     return max_concurrent
 
+class DynamicVRAMScaler:
+    """Real-time VRAM monitoring and concurrent file scaling"""
+    
+    def __init__(self, config, initial_concurrent):
+        self.config = config
+        self.current_concurrent = initial_concurrent
+        self.files_processed = 0
+        self.scaling_enabled = config.concurrent_processing.dynamic_vram_scaling
+        self.target_min = config.concurrent_processing.target_vram_min
+        self.target_max = config.concurrent_processing.target_vram_max
+        self.step_size = config.concurrent_processing.scaling_step_size
+        self.check_interval = config.concurrent_processing.scaling_check_interval
+        self.time_interval = config.concurrent_processing.scaling_time_interval
+        self.last_scaling_time = time.time()
+        
+    def should_check_scaling(self):
+        """Check if we should evaluate VRAM and adjust scaling"""
+        current_time = time.time()
+        time_based_check = (current_time - self.last_scaling_time) >= self.time_interval
+        file_based_check = (self.files_processed > 0 and 
+                           self.files_processed % self.check_interval == 0)
+        
+        return (self.scaling_enabled and (time_based_check or file_based_check))
+    
+    def get_current_vram_usage(self):
+        """Get current VRAM usage percentage"""
+        try:
+            gpu_info = get_gpu_info()
+            return gpu_info['vram_used_mb'] / (gpu_info['vram_total_gb'] * 1024)
+        except:
+            return 0.5  # Fallback
+    
+    def adjust_concurrency(self):
+        """Dynamically adjust concurrent files based on VRAM usage"""
+        try:
+            # Get fresh GPU info for accurate VRAM measurement
+            gpu_info = get_gpu_info()
+            current_vram_pct = self.get_current_vram_usage()
+            
+            # Enhanced logging with actual VRAM values
+            vram_used_gb = gpu_info['vram_used_mb'] / 1024
+            vram_total_gb = gpu_info['vram_total_gb']
+            print(f"🔍 GPU Info - Name: {gpu_info['gpu_model']}, VRAM: {gpu_info['vram_used_mb']:.0f}MB/{vram_total_gb:.1f}GB, Utilization: {gpu_info['gpu_utilization_percent']}%")
+            
+            if current_vram_pct < self.target_min:
+                # VRAM usage too low - increase concurrency
+                old_concurrent = self.current_concurrent
+                
+                # Dynamic max concurrent limit based on GPU VRAM (more aggressive now)
+                max_safe_concurrent = max(6, int(vram_total_gb * 3))  # ~3 files per GB for maximum utilization
+                self.current_concurrent = min(self.current_concurrent + self.step_size, max_safe_concurrent)
+                
+                print(f"🔼 VRAM {current_vram_pct:.0%} < {self.target_min:.0%} → Increasing {old_concurrent} → {self.current_concurrent} concurrent files (max: {max_safe_concurrent})")
+                self.last_scaling_time = time.time()  # Reset time counter
+                return self.current_concurrent
+                
+            elif current_vram_pct > self.target_max:
+                # VRAM usage too high - decrease concurrency  
+                old_concurrent = self.current_concurrent
+                self.current_concurrent = max(self.current_concurrent - self.step_size, 1)  # Min 1
+                print(f"🔽 VRAM {current_vram_pct:.0%} > {self.target_max:.0%} → Decreasing {old_concurrent} → {self.current_concurrent} concurrent files")
+                self.last_scaling_time = time.time()  # Reset time counter
+                return self.current_concurrent
+            else:
+                # VRAM usage in target range
+                print(f"✅ VRAM {current_vram_pct:.0%} in target range {self.target_min:.0%}-{self.target_max:.0%} → Keeping {self.current_concurrent} concurrent files")
+                return self.current_concurrent
+                
+        except Exception as e:
+            print(f"⚠️ Error getting GPU info for dynamic scaling: {e}")
+            return self.current_concurrent
+    
+    def file_completed(self):
+        """Call this when a file is completed"""
+        self.files_processed += 1
+        
+        if self.should_check_scaling():
+            return self.adjust_concurrency()
+        return self.current_concurrent
+
 async def process_files_concurrently(files: List[UploadFile], model_instance, whisper_language, language_mode, model_name):
-    """Process files concurrently using ThreadPoolExecutor with VRAM safety"""
+    """Process files concurrently with dynamic VRAM scaling"""
     
     # Prepare all files first
     tasks = []
@@ -440,31 +521,98 @@ async def process_files_concurrently(files: List[UploadFile], model_instance, wh
         
         max_concurrent = int(max_concurrent)  # Ensure integer
     
-    print(f"🚀 Processing {len(tasks)} files with max_concurrent={max_concurrent}")
+    # Initialize dynamic VRAM scaler
+    vram_scaler = DynamicVRAMScaler(config, max_concurrent)
+    current_concurrent = max_concurrent
     
-    # Process files concurrently
-    results = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent) as executor:
-        # Submit all tasks
-        future_to_task = {
-            executor.submit(process_single_file_sync, task, model_instance, whisper_language, language_mode, model_name): task
-            for task in tasks
-        }
+    print(f"🚀 Processing {len(tasks)} files with initial max_concurrent={max_concurrent}")
+    if vram_scaler.scaling_enabled:
+        print(f"🔄 Dynamic VRAM scaling enabled: target {vram_scaler.target_min:.0%}-{vram_scaler.target_max:.0%}")
+    
+    # Prevent model cleanup during concurrent processing
+    model_manager.set_concurrent_processing(True)
+    
+    try:
+        # Process files with dynamic scaling
+        results = []
+        pending_tasks = tasks.copy()
+        active_futures = {}
         
-        # Collect results as they complete
-        for future in concurrent.futures.as_completed(future_to_task):
-            task = future_to_task[future]
-            try:
-                result = future.result()
-                results.append(result)
-                print(f"✅ Completed {len(results)}/{len(tasks)}: {task.file.filename}")
-            except Exception as e:
-                print(f"❌ Exception for {task.file.filename}: {e}")
-                results.append({
-                    "filename": task.file.filename,
-                    "error": str(e),
-                    "status": "failed"
-                })
+        # Start a background thread for time-based VRAM scaling
+        scaling_stop_event = threading.Event()
+        
+        def time_based_scaling():
+            nonlocal current_concurrent
+            while not scaling_stop_event.is_set():
+                if vram_scaler.should_check_scaling():
+                    new_concurrent = vram_scaler.adjust_concurrency()
+                    if new_concurrent != current_concurrent:
+                        current_concurrent = new_concurrent
+                        # Note: Can't add new futures here due to thread safety, will be handled in main loop
+                time.sleep(5)  # Check every 5 seconds
+        
+        if vram_scaler.scaling_enabled:
+            scaling_thread = threading.Thread(target=time_based_scaling, daemon=True)
+            scaling_thread.start()
+        
+        # Use a smaller initial pool and expand dynamically
+        with concurrent.futures.ThreadPoolExecutor(max_workers=50) as executor:  # Large pool for dynamic scaling
+            
+            # Submit initial batch of tasks
+            while len(active_futures) < current_concurrent and pending_tasks:
+                task = pending_tasks.pop(0)
+                future = executor.submit(process_single_file_sync, task, model_instance, whisper_language, language_mode, model_name)
+                active_futures[future] = task
+            
+            # Process results and maintain optimal concurrency
+            while active_futures or pending_tasks:
+                if active_futures:
+                    # Wait for at least one task to complete (no timeout to avoid TimeoutError)
+                    try:
+                        done_futures, _ = concurrent.futures.wait(active_futures, return_when=concurrent.futures.FIRST_COMPLETED)
+                        
+                        # Process all completed futures
+                        for future in done_futures:
+                            task = active_futures.pop(future)
+                            
+                            try:
+                                result = future.result()
+                                results.append(result)
+                                print(f"✅ Completed {len(results)}/{len(tasks)}: {task.file.filename}")
+                            except Exception as e:
+                                print(f"❌ Exception for {task.file.filename}: {e}")
+                                results.append({
+                                    "filename": task.file.filename,
+                                    "error": str(e),
+                                    "status": "failed"
+                                })
+                            
+                            # Check if we should adjust concurrency
+                            new_concurrent = vram_scaler.file_completed()
+                            if new_concurrent != current_concurrent:
+                                current_concurrent = new_concurrent
+                                print(f"🔄 Dynamic scaling: adjusting to {current_concurrent} concurrent files")
+                            
+                            # Submit new tasks to maintain desired concurrency
+                            while len(active_futures) < current_concurrent and pending_tasks:
+                                new_task = pending_tasks.pop(0)
+                                new_future = executor.submit(process_single_file_sync, new_task, model_instance, whisper_language, language_mode, model_name)
+                                active_futures[new_future] = new_task
+                                
+                    except Exception as e:
+                        print(f"⚠️ Error in concurrent processing loop: {e}")
+                        break
+                else:
+                    # No active futures but pending tasks - shouldn't happen
+                    break
+        
+        # Stop the background scaling thread
+        if vram_scaler.scaling_enabled:
+            scaling_stop_event.set()
+                        
+    finally:
+        # Always re-enable model cleanup after concurrent processing
+        model_manager.set_concurrent_processing(False)
     
     # Clean up temporary files
     for task in tasks:
@@ -481,6 +629,8 @@ async def process_files_concurrently(files: List[UploadFile], model_instance, wh
     transcript_lengths = [r["transcript_length"] for r in successful_results if "transcript_length" in r]
     language_confidences = [r["language_probability"] for r in successful_results]
     
+    print(f"📊 Dynamic scaling summary: Started at {max_concurrent}, ended at {vram_scaler.current_concurrent} concurrent files")
+    
     return results, {
         "file_sizes": file_sizes,
         "audio_lengths": audio_lengths,
@@ -488,7 +638,7 @@ async def process_files_concurrently(files: List[UploadFile], model_instance, wh
         "processing_times": processing_times,
         "transcript_lengths": transcript_lengths,
         "language_confidences": language_confidences
-    }, max_concurrent
+    }, vram_scaler.current_concurrent
 
 @app.get("/health")
 async def health_check():

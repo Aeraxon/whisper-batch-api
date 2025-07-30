@@ -19,6 +19,7 @@ class SmartModelManager:
         self.models = {}
         self.last_used = {}
         self.lock = threading.Lock()
+        self.concurrent_processing_active = False  # Flag to prevent cleanup during concurrent processing
         
         # Use timeout from config
         self.timeout_minutes = self.config.get_model_timeout_minutes()
@@ -127,6 +128,10 @@ class SmartModelManager:
         timeout_seconds = self.timeout_minutes * 60
         
         with self.lock:
+            # Skip cleanup if concurrent processing is active
+            if self.concurrent_processing_active:
+                return
+                
             models_to_remove = []
             
             for model_name, last_used_time in self.last_used.items():
@@ -142,6 +147,15 @@ class SmartModelManager:
                 info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
                 vram_used_gb = info.used / (1024**3)
                 print(f"🧹 VRAM after cleanup: {vram_used_gb:.1f}GB")
+    
+    def set_concurrent_processing(self, active: bool):
+        """Set concurrent processing flag to prevent/allow model cleanup"""
+        with self.lock:
+            self.concurrent_processing_active = active
+            if active:
+                print(f"🔒 Model cleanup disabled during concurrent processing")
+            else:
+                print(f"🔓 Model cleanup re-enabled after concurrent processing")
     
     def force_unload_all(self):
         """Unload all models for other containers"""

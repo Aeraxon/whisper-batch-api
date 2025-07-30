@@ -23,9 +23,17 @@ concurrent_processing:
   auto_gpu_scaling: true     # Automatically optimize settings per GPU model
   
   # VRAM calculation parameters (fine-tune if needed)
-  base_model_vram_gb: 4.7    # Base Whisper model VRAM usage
-  overhead_per_file_gb: 0.3  # VRAM overhead per concurrent file (reduced from 0.4)
-  safety_buffer_gb: 0.5      # Safety buffer to prevent OOM (reduced from 1.0)
+  base_model_vram_gb: 4.5    # Base Whisper model VRAM usage (reduced from 4.7)
+  overhead_per_file_gb: 0.25 # VRAM overhead per concurrent file (reduced from 0.3)
+  safety_buffer_gb: 0.3     # Safety buffer to prevent OOM (reduced from 0.5)
+  
+  # Dynamic VRAM optimization during runtime
+  dynamic_vram_scaling: true # Enable real-time VRAM-based scaling
+  target_vram_min: 0.75     # Target minimum VRAM usage (75% - aggressive)
+  target_vram_max: 0.85     # Target maximum VRAM usage (85% - push the limits)
+  scaling_step_size: 1      # How many files to add/remove per adjustment (fine control)
+  scaling_check_interval: 1 # Check VRAM every single file for rapid scaling
+  scaling_time_interval: 30 # Also check VRAM every 30 seconds regardless of file completion
 
 # Language settings
 language:

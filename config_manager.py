@@ -46,6 +46,12 @@ class ConcurrentProcessingConfig:
     base_model_vram_gb: float
     overhead_per_file_gb: float
     safety_buffer_gb: float
+    dynamic_vram_scaling: bool
+    target_vram_min: float
+    target_vram_max: float
+    scaling_step_size: int
+    scaling_check_interval: int
+    scaling_time_interval: int
 
 class WhisperConfigManager:
     def __init__(self, config_path="whisper_config.yaml"):
@@ -72,7 +78,13 @@ class WhisperConfigManager:
             'auto_gpu_scaling': True,
             'base_model_vram_gb': 4.7,
             'overhead_per_file_gb': 0.4,
-            'safety_buffer_gb': 1.0
+            'safety_buffer_gb': 1.0,
+            'dynamic_vram_scaling': False,
+            'target_vram_min': 0.75,
+            'target_vram_max': 0.85,
+            'scaling_step_size': 1,
+            'scaling_check_interval': 1,
+            'scaling_time_interval': 30
         })
         self.concurrent_processing = ConcurrentProcessingConfig(**concurrent_config)
         
