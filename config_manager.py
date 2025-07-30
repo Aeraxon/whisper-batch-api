@@ -49,6 +49,7 @@ class ConcurrentProcessingConfig:
     dynamic_vram_scaling: bool
     target_vram_min: float
     target_vram_max: float
+    emergency_vram_max: float
     scaling_step_size: int
     scaling_check_interval: int
     scaling_time_interval: int
@@ -82,6 +83,7 @@ class WhisperConfigManager:
             'dynamic_vram_scaling': False,
             'target_vram_min': 0.75,
             'target_vram_max': 0.85,
+            'emergency_vram_max': 0.90,
             'scaling_step_size': 1,
             'scaling_check_interval': 1,
             'scaling_time_interval': 30

@@ -389,6 +389,7 @@ class DynamicVRAMScaler:
         self.scaling_enabled = config.concurrent_processing.dynamic_vram_scaling
         self.target_min = config.concurrent_processing.target_vram_min
         self.target_max = config.concurrent_processing.target_vram_max
+        self.emergency_max = config.concurrent_processing.emergency_vram_max
         self.step_size = config.concurrent_processing.scaling_step_size
         self.check_interval = config.concurrent_processing.scaling_check_interval
         self.time_interval = config.concurrent_processing.scaling_time_interval
@@ -423,7 +424,24 @@ class DynamicVRAMScaler:
             vram_total_gb = gpu_info['vram_total_gb']
             print(f"🔍 GPU Info - Name: {gpu_info['gpu_model']}, VRAM: {gpu_info['vram_used_mb']:.0f}MB/{vram_total_gb:.1f}GB, Utilization: {gpu_info['gpu_utilization_percent']}%")
             
-            if current_vram_pct < self.target_min:
+            if current_vram_pct > self.emergency_max:
+                # Emergency: VRAM usage dangerously high - force immediate reduction
+                old_concurrent = self.current_concurrent
+                # Reduce by 2 files for emergency situations to quickly free VRAM
+                self.current_concurrent = max(self.current_concurrent - 2, 1)  # Min 1
+                print(f"🚨 EMERGENCY: VRAM {current_vram_pct:.0%} > {self.emergency_max:.0%}! Force reducing {old_concurrent} → {self.current_concurrent} concurrent files")
+                self.last_scaling_time = time.time()  # Reset time counter
+                return self.current_concurrent
+                
+            elif current_vram_pct > self.target_max:
+                # VRAM usage above target - decrease concurrency  
+                old_concurrent = self.current_concurrent
+                self.current_concurrent = max(self.current_concurrent - self.step_size, 1)  # Min 1
+                print(f"🔽 VRAM {current_vram_pct:.0%} > {self.target_max:.0%} → Decreasing {old_concurrent} → {self.current_concurrent} concurrent files")
+                self.last_scaling_time = time.time()  # Reset time counter
+                return self.current_concurrent
+                
+            elif current_vram_pct < self.target_min:
                 # VRAM usage too low - increase concurrency
                 old_concurrent = self.current_concurrent
                 
@@ -432,14 +450,6 @@ class DynamicVRAMScaler:
                 self.current_concurrent = min(self.current_concurrent + self.step_size, max_safe_concurrent)
                 
                 print(f"🔼 VRAM {current_vram_pct:.0%} < {self.target_min:.0%} → Increasing {old_concurrent} → {self.current_concurrent} concurrent files (max: {max_safe_concurrent})")
-                self.last_scaling_time = time.time()  # Reset time counter
-                return self.current_concurrent
-                
-            elif current_vram_pct > self.target_max:
-                # VRAM usage too high - decrease concurrency  
-                old_concurrent = self.current_concurrent
-                self.current_concurrent = max(self.current_concurrent - self.step_size, 1)  # Min 1
-                print(f"🔽 VRAM {current_vram_pct:.0%} > {self.target_max:.0%} → Decreasing {old_concurrent} → {self.current_concurrent} concurrent files")
                 self.last_scaling_time = time.time()  # Reset time counter
                 return self.current_concurrent
             else:
@@ -527,7 +537,7 @@ async def process_files_concurrently(files: List[UploadFile], model_instance, wh
     
     print(f"🚀 Processing {len(tasks)} files with initial max_concurrent={max_concurrent}")
     if vram_scaler.scaling_enabled:
-        print(f"🔄 Dynamic VRAM scaling enabled: target {vram_scaler.target_min:.0%}-{vram_scaler.target_max:.0%}")
+        print(f"🔄 Dynamic VRAM scaling enabled: target {vram_scaler.target_min:.0%}-{vram_scaler.target_max:.0%}, emergency < {vram_scaler.emergency_max:.0%}")
     
     # Prevent model cleanup during concurrent processing
     model_manager.set_concurrent_processing(True)

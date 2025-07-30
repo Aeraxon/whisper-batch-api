@@ -31,6 +31,7 @@ concurrent_processing:
   dynamic_vram_scaling: true # Enable real-time VRAM-based scaling
   target_vram_min: 0.75     # Target minimum VRAM usage (75% - aggressive)
   target_vram_max: 0.85     # Target maximum VRAM usage (85% - push the limits)
+  emergency_vram_max: 0.90  # Emergency threshold - force scale down (90% - safety)
   scaling_step_size: 1      # How many files to add/remove per adjustment (fine control)
   scaling_check_interval: 1 # Check VRAM every single file for rapid scaling
   scaling_time_interval: 30 # Also check VRAM every 30 seconds regardless of file completion
