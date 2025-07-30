@@ -116,7 +116,7 @@ class WhisperConfigManager:
                 raise ValueError(f"Unsupported model: {self.model.default_model}")
             
             # Validate batch size
-            if self.model.batch_size < 1 or self.model.batch_size > 16:
+            if self.model.batch_size < 1 or self.model.batch_size > 2048:
                 raise ValueError(f"Invalid batch size: {self.model.batch_size}")
             
             # Validate VRAM with model-specific recommendations

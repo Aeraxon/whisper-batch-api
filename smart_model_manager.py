@@ -1,7 +1,7 @@
 import torch
 import time
 import threading
-from faster_whisper import WhisperModel
+from faster_whisper import WhisperModel, BatchedInferencePipeline  # ← BatchedInferencePipeline hinzugefügt
 import pynvml
 import os
 from pathlib import Path
@@ -56,16 +56,24 @@ class SmartModelManager:
             return self._load_model(model_name)
     
     def _load_model(self, model_name):
-        print(f"📥 Loading {model_name} model into VRAM...")
+        print(f"📥 Loading {model_name} model with batching...")
         
-        # Load the specified model
-        model = WhisperModel(model_name, device="cuda", compute_type="float16")
+        # Standard Model laden
+        base_model = WhisperModel(
+            model_name, 
+            device="cuda", 
+            compute_type="float16"
+        )
         
-        # Use batch size from config
+        # Batch size aus Config holen
         batch_size = self.config.get_model_batch_size()
         
+        # BatchedInferencePipeline erstellen (OHNE batch_size Parameter!)
+        batched_model = BatchedInferencePipeline(model=base_model)
+        
         model_instance = {
-            'model': model,
+            'model': batched_model,      # ← Jetzt BatchedInferencePipeline statt WhisperModel
+            'base_model': base_model,    # Backup falls benötigt
             'batch_size': batch_size,
             'model_name': model_name,
             'loaded_at': time.time(),
@@ -79,7 +87,7 @@ class SmartModelManager:
         info = pynvml.nvmlDeviceGetMemoryInfo(self.gpu_handle)
         vram_used_gb = info.used / (1024**3)
         
-        print(f"✅ {model_name} model loaded successfully")
+        print(f"✅ {model_name} model loaded with BatchedInferencePipeline")
         print(f"   Batch size: {batch_size}")
         print(f"   VRAM used: {vram_used_gb:.1f}GB")
         print(f"   Expected VRAM: {self.config.model.vram_usage_gb}GB")

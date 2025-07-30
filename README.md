@@ -2,107 +2,77 @@
 
 A high-performance batch transcription service using OpenAI's Whisper models with flexible configuration, optimized for GPU acceleration and designed for processing thousands of audio files efficiently.
 
+## Quick Start
+
+```bash
+# 1. Clone and setup
+git clone https://github.com/Aeraxon/whisper-batch-api.git
+cd whisper-batch-api
+python3.10 -m venv venv && source venv/bin/activate
+
+# 2. Install (choose your GPU)
+# Standard GPUs (RTX 40XX and older):
+pip install torch==2.6.0+cu118 torchaudio==2.6.0+cu118 --index-url https://download.pytorch.org/whl/cu118
+# Blackwell GPUs (RTX 50XX):
+pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
+
+# 3. Install dependencies and start
+pip install -r requirements.txt
+
+# Apply container restart fix (important for LXC/Docker)
+echo 'VENV_SITE_PACKAGES="$VIRTUAL_ENV/lib/python3.10/site-packages"' >> venv/bin/activate
+echo 'export LD_LIBRARY_PATH="${VENV_SITE_PACKAGES}/nvidia/cublas/lib:${VENV_SITE_PACKAGES}/nvidia/cudnn/lib:${VENV_SITE_PACKAGES}/ctranslate2.libs:/usr/local/cuda/lib64"' >> venv/bin/activate
+
+python whisper_api.py
+
+# 4. Test transcription
+curl -X POST "http://localhost:8000/transcribe/batch" -F "files=@your_audio.wav"
+```
+
 ## Features
 
-- 🚀 **High Performance**: Support for all Whisper models (Large-v3, Large-v2, Medium, Small, etc.)
-- 🌍 **Smart Language Detection**: Automatic language recognition with manual override option
+- 🚀 **High Performance**: Support for all Whisper models with automatic GPU optimization
+- 🌍 **Smart Language Detection**: Automatic recognition with manual override option
 - 📦 **Batch Processing**: Process up to 100 files per batch
-- 📊 **Comprehensive Metrics**: Automatic performance tracking with CSV export for every batch
+- 📊 **Performance Metrics**: Automatic tracking with CSV export
 - 🔧 **Flexible Configuration**: Central YAML configuration for all settings
 - 🔄 **Lazy Loading**: Models loaded on-demand, auto-unloaded after inactivity
-- 🎵 **Real Audio Duration**: Accurate audio length measurement and real-time factor calculation
-- 🔗 **Shared GPU**: Compatible with other GPU workloads (like Ollama)
-- 📁 **Automatic Archiving**: All transcripts saved as numbered TXT files with metadata
-- 🔧 **Runtime Configuration**: Change settings without restart via API
-- 🖥️ **GPU Monitoring**: Automatic VRAM tracking and GPU utilization metrics
+- 📁 **Automatic Archiving**: All transcripts saved with metadata
+- 🖥️ **GPU Monitoring**: VRAM tracking and utilization metrics
 
 ## Hardware Requirements
 
-- **GPU**: NVIDIA GPU with at least 8GB VRAM (tested on RTX A2000 12GB)
+- **GPU**: NVIDIA GPU with 8GB+ VRAM (tested on RTX A2000 12GB, RTX 5080)
 - **RAM**: Minimum 16GB system RAM
-- **Storage**: SSD recommended for temporary file processing
+- **Storage**: SSD recommended
 - **CUDA**: Compatible GPU with CUDA Compute Capability 6.0+
-
-## Tested Configuration
-
-This setup was successfully tested on:
-- **Hardware**: NVIDIA RTX A2000 12GB
-- **OS**: Ubuntu 22.04.5 LTS (Jammy Jellyfish)
-- **NVIDIA Driver**: 570.86.15 (with CUDA 12.8 support)
-- **CUDA Toolkit**: 11.5 (pre-installed)
-- **Python**: 3.10
-
-**Note**: The system works with mixed CUDA versions. For Blackwell GPUs: Native CUDA 12.8 support with PyTorch cu128 builds.
 
 ## Performance & Metrics
 
-This system doesn't just transcribe - it **automatically tracks comprehensive performance metrics** for every batch:
+The system automatically tracks comprehensive performance metrics for every batch and saves them to `./output/metrics.csv`. View real-time metrics:
 
-### 📊 **Automatic Performance Tracking**
-- ⏱️ **Processing Times** - Real-time factors, throughput rates
-- 🎵 **Audio Analysis** - Real audio duration measurement, format distribution  
-- 🖥️ **GPU Monitoring** - VRAM usage, utilization percentages
-- 🌍 **Language Detection** - Confidence scores, detection accuracy
-- 📈 **Capacity Planning** - Files/hour, transcribable minutes/day projections
-- 📁 **Quality Metrics** - Error rates, transcript lengths
-- 💾 **All metrics saved to CSV** - `~/output/metrics.csv` for analysis
-
-### 🔍 **View Your Performance Data**
 ```bash
 # Real-time metrics via API
 curl http://localhost:8000/metrics
 
-# Or check the CSV file directly
-cat ~/output/metrics.csv
+# Check saved metrics
+cat output/metrics.csv
 ```
 
-### 🚀 **Performance Optimization**
-The system automatically optimizes for your hardware:
-- **GPU Detection** - Automatically detects and reports your GPU model
-- **VRAM Monitoring** - Tracks memory usage and prevents overflows
-- **Batch Size Optimization** - Configurable based on your VRAM
-- **Model Selection** - Choose speed vs. quality based on your needs
-- **Real-time Factors** - See exactly how much faster than real-time you're processing
-
-### 📈 **Benchmark Your Setup**
-Run your own performance tests and get detailed metrics:
-- Processing speed on your specific GPU
-- Optimal batch sizes for your hardware  
-- Real-world throughput with your audio files
-- Language detection accuracy
-- Resource utilization patterns
-
-**Every transcription run generates comprehensive performance data - perfect for optimization and capacity planning!**
+**⚡ Blackwell GPU Performance:** RTX 50XX users get automatic performance optimization with mixed precision (int8_float16) for optimal speed.
 
 ## Supported Models
 
-The system supports all Faster-Whisper models with automatic switching via configuration:
-
 ### **Large Models (Recommended):**
 - `large-v3` - Latest and most accurate
-- `large-v3-turbo` - Faster variant of v3
+- `large-v3-turbo` - Faster variant of v3  
 - `large-v3-german` - **Optimized for German language**
 - `large-v2` - Proven and stable
 
 ### **Smaller Models:**
-- `medium`, `medium.en` - Good balance of speed/quality
-- `small`, `small.en` - Faster processing
-- `base`, `base.en` - Basic transcription
-- `tiny`, `tiny.en` - Minimal VRAM usage
-
-## System Requirements
-
-- **OS**: Ubuntu 22.04 LTS (tested)
-- **Python**: 3.10
-- **NVIDIA Driver**: 535+ with CUDA 12.0+ support
-- **CUDA Toolkit**: 11.5+ (any version compatible with your driver)
-- **Storage**: ~/output directory for transcripts and metrics
-
-**Note**: The system supports various CUDA versions. Blackwell GPUs use native CUDA 12.8, older GPUs can use CUDA 11.8.
+- `medium`, `small`, `base`, `tiny` - Various speed/quality trade-offs
 
 ## Installation
-
-### Standard Installation (RTX 40XX and older)
 
 ### 1. System Dependencies
 
@@ -206,7 +176,43 @@ echo 'export LD_LIBRARY_PATH="$(python -c "import site; print(site.getsitepackag
 source ~/.bashrc
 ```
 
-### 5. Verify Installation
+### 5. Container Restart Fix (LXC/Docker)
+
+**Important for LXC/Docker users:** After container restarts, you may encounter `libcudnn_ops.so` errors. Here's the permanent fix:
+
+```bash
+# Add CUDA paths directly to venv activation (recommended)
+echo '' >> venv/bin/activate
+echo '# Whisper CUDA Libraries (Container Restart Fix)' >> venv/bin/activate
+echo 'VENV_SITE_PACKAGES="$VIRTUAL_ENV/lib/python3.10/site-packages"' >> venv/bin/activate
+echo 'export LD_LIBRARY_PATH="${VENV_SITE_PACKAGES}/nvidia/cublas/lib:${VENV_SITE_PACKAGES}/nvidia/cudnn/lib:${VENV_SITE_PACKAGES}/ctranslate2.libs:/usr/local/cuda/lib64"' >> venv/bin/activate
+```
+
+**Test the fix:**
+```bash
+deactivate
+source venv/bin/activate
+python -c "from faster_whisper import WhisperModel; print('✅ CUDA Fix Working!')"
+```
+
+**Create convenient start script:**
+```bash
+# Create start script in your home directory
+cat > ~/start_whisper.sh << 'EOF'
+#!/bin/bash
+echo "🚀 Starting Whisper Batch API..."
+cd /path/to/your/whisper-batch-api
+source venv/bin/activate
+echo "✅ CUDA paths set automatically"
+python whisper_api.py
+EOF
+
+chmod +x ~/start_whisper.sh
+```
+
+> **Note:** Replace `/path/to/your/whisper-batch-api` with your actual project path.
+
+### 6. Verify Installation
 
 ```bash
 # Test CUDA availability
@@ -230,7 +236,7 @@ GPU Compute capability: (9, 0)  # Blackwell architecture
 Faster-Whisper import successful!
 ```
 
-### 6. Create Output Directory
+### 7. Create Output Directory
 
 ```bash
 # Create directory for transcripts and metrics
@@ -239,126 +245,66 @@ mkdir -p output
 
 ## Configuration
 
-The system uses a central YAML configuration file for all settings:
+The system uses a central YAML configuration file (`whisper_config.yaml`) for all settings. Key options:
 
-```yaml
-# whisper_config.yaml
-system:
-  gpu_device: "cuda:0"
-  max_vram_usage: 11.5  # GB (adjust based on your GPU)
-  shared_gpu: true      # Allow other processes to use GPU when idle
-  
-single_worker:
-  lazy_loading: true              # Load models on-demand
-  model_timeout_minutes: 5        # Auto-unload after inactivity
-  
-# Main model configuration - Change here to switch between models
-model:
-  default_model: "large-v3-german"  # Options: "large-v2", "large-v3", "large-v3-turbo", "large-v3-german", "medium", "small", "base", "tiny"
-  vram_usage_gb: 4.8               # VRAM usage (adjust for model: large=4.7GB, medium=2.4GB, small=1.2GB, base=0.8GB, tiny=0.4GB)
-  batch_size: 4                    # Optimal batch size (can be higher for smaller models)
-  expected_throughput: 3000        # Expected files per hour
+- **Model**: `default_model: "large-v2"` (switch between models)
+- **Language**: `auto_detect: true` (automatic language detection)
+- **Output**: `directory: "./output"` (where transcripts are saved)
+- **Batch Size**: `batch_size: 4` (adjust for your GPU)
 
-# Language settings
-language:
-  default_language: "de"    # Default language (fallback if auto-detect fails)
-  auto_detect: true         # Enable automatic language detection (recommended)
+See `whisper_config.yaml` for all configuration options.
 
-api:
-  host: "0.0.0.0"
-  port: 8000
-  max_batch_size: 100
-  
-monitoring:
-  enable_basic_logging: true
-  log_level: "INFO"
+## Dependencies (requirements.txt)
+
 ```
-
-### Model Switching
-
-To switch models, simply change the configuration:
-
-```yaml
-# For German-optimized transcription
-model:
-  default_model: "large-v3-german"
-  vram_usage_gb: 4.8
-
-# For fastest processing
-model:
-  default_model: "medium"
-  vram_usage_gb: 2.4
-  batch_size: 8
-
-# For minimal VRAM usage
-model:
-  default_model: "small"
-  vram_usage_gb: 1.2
-  batch_size: 12
+fastapi==0.115.5
+uvicorn==0.32.1
+python-multipart==0.0.12
+aiofiles==24.1.0
+faster-whisper==1.1.0
+pynvml==11.5.3
+pyyaml==6.0.2
+soundfile==0.12.1
 ```
 
 ## Usage
 
 ### Start the API Server
 
+**Quick Start (with start script):**
 ```bash
-# Activate virtual environment
-source venv/bin/activate
+# If you created the start script during installation:
+~/start_whisper.sh
+```
 
-# Start the Whisper API server
+**Manual Start:**
+```bash
+# Always activate venv first (sets CUDA paths automatically)
+source venv/bin/activate
 python whisper_api.py
 ```
 
 The API will be available at `http://localhost:8000`
 
-You should see:
-```
-🔧 Configuration loaded successfully
-   Default model: large-v3-german
-   Default language: de
-   Max batch size: 100
-🔧 SmartModelManager initialized:
-   Default model: large-v3-german
-   Model timeout: 5 minutes
-   Batch size: 4
-✅ Config validation successful
-```
-
 ### API Endpoints
 
-#### Health Check with Configuration
-```bash
-curl http://localhost:8000/health
-```
-
-#### Simple Batch Transcription (Auto-Detection)
+#### Simple Batch Transcription
 ```bash
 curl -X POST "http://localhost:8000/transcribe/batch" \
      -F "files=@audio1.wav" \
-     -F "files=@audio2.mp3" \
-     -F "files=@audio3.m4a"
-# Uses config defaults: model + automatic language detection
+     -F "files=@audio2.mp3"
 ```
 
-#### Batch Transcription with Manual Language Override
+#### With Language Override
 ```bash
 curl -X POST "http://localhost:8000/transcribe/batch" \
      -F "files=@english_audio.wav" \
      -F "language=en"
-# Overrides auto-detection with English
 ```
 
-#### Batch Transcription with Different Model
+#### Health Check
 ```bash
-curl -X POST "http://localhost:8000/transcribe/batch" \
-     -F "files=@audio.wav" \
-     -F "model_name=large-v2"
-# Uses large-v2 instead of config default
-```
-
-#### View Current Configuration
-```bash
-curl http://localhost:8000/config
+curl http://localhost:8000/health
 ```
 
 #### View Performance Metrics
@@ -366,29 +312,14 @@ curl http://localhost:8000/config
 curl http://localhost:8000/metrics
 ```
 
-#### Reload Configuration (Runtime Changes)
-```bash
-curl -X POST http://localhost:8000/config/reload
-```
-
-#### Free GPU Memory (for other workloads)
-```bash
-curl -X POST http://localhost:8000/free-vram
-```
-
 ### Supported Audio Formats
 
-- WAV (uncompressed)
-- MP3 (compressed)
-- M4A (compressed)
-- OGG (compressed)
-- FLAC (lossless)
-- AAC (compressed)
+WAV, MP3, M4A, OGG, FLAC, AAC
 
 ## Output Files
 
 ### Transcripts
-Transcripts are automatically saved to `~/output/transcript_XXXXXX.txt` with comprehensive metadata:
+Automatically saved to `./output/transcript_XXXXXX.txt` with metadata:
 
 ```
 # Whisper Transcription #000001
@@ -396,367 +327,95 @@ Transcripts are automatically saved to `~/output/transcript_XXXXXX.txt` with com
 # Audio length: 6.25 minutes
 # Processing time: 54.30s
 # Real-time factor: 6.9x
-# Model: large-v3-german
+# Model: large-v2
 # Language mode: auto-detect
 # Detected language: de (confidence: 0.98)
-# Timestamp: 2025-07-26 14:30:15
 # =====================================
 
 [Transcript content here]
 ```
 
 ### Performance Metrics
-Comprehensive metrics are saved to `~/output/metrics.csv` including:
-
-- Processing times and throughput
-- Real-time factors and efficiency
-- GPU utilization and VRAM usage
-- Language detection confidence
-- Audio format analysis
-- Error rates and quality metrics
-- Daily/hourly capacity projections
-
-## Language Detection
-
-The system features intelligent language handling:
-
-### **Automatic Detection (Default)**
-```bash
-curl -X POST "..." -F "files=@audio.wav"
-# Whisper automatically detects language
-# Works for 100+ languages
-```
-
-### **Manual Override**
-```bash
-curl -X POST "..." -F "files=@audio.wav" -F "language=en"
-# Forces English transcription
-```
-
-### **Configuration Control**
-```yaml
-language:
-  auto_detect: true         # Enable auto-detection
-  default_language: "de"    # Fallback if detection fails
-```
-
-### **Detection Output**
-```
-🗣️ Language mode: auto-detect
-🌍 Detected language: de (confidence: 0.98)
-```
-
-## Runtime Configuration Changes
-
-You can modify settings without restarting the server:
-
-### **1. Edit Configuration File**
-```bash
-nano whisper_config.yaml
-# Change model, language settings, etc.
-```
-
-### **2. Reload via API**
-```bash
-curl -X POST http://localhost:8000/config/reload
-```
-
-### **3. Verify Changes**
-```bash
-curl http://localhost:8000/config
-```
-
-This is especially useful for:
-- Switching between models for different workloads
-- Adjusting batch sizes based on file types
-- Changing timeout settings during heavy usage
-
-## Docker Support (Optional)
-
-For containerized deployment:
-
-```dockerfile
-FROM nvidia/cuda:11.8-devel-ubuntu22.04
-
-# Install system dependencies
-RUN apt-get update && apt-get install -y \
-    python3.10 python3.10-venv python3.10-dev \
-    ffmpeg git wget curl && \
-    rm -rf /var/lib/apt/lists/*
-
-# Set up application
-WORKDIR /app
-COPY requirements.txt whisper_config.yaml .
-RUN python3.10 -m venv venv && \
-    . venv/bin/activate && \
-    pip install -r requirements.txt
-
-COPY . .
-
-EXPOSE 8000
-CMD ["./venv/bin/python", "whisper_api.py"]
-```
-
-## Production Deployment
-
-### Systemd Service
-
-Create `/etc/systemd/system/whisper-batch.service`:
-
-```ini
-[Unit]
-Description=Whisper Batch Transcription API
-After=network.target
-
-[Service]
-Type=simple
-User=your-username
-WorkingDirectory=/path/to/whisper-batch-transcription
-Environment=PATH=/path/to/whisper-batch-transcription/venv/bin
-ExecStart=/path/to/whisper-batch-transcription/venv/bin/python whisper_api.py
-Restart=always
-RestartSec=3
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
-
-Enable and start:
-```bash
-sudo systemctl enable whisper-batch.service
-sudo systemctl start whisper-batch.service
-```
-
-### Nginx Reverse Proxy
-
-```nginx
-server {
-    listen 80;
-    server_name your-domain.com;
-    
-    client_max_body_size 500M;
-    proxy_read_timeout 300s;
-    proxy_send_timeout 300s;
-    
-    location / {
-        proxy_pass http://127.0.0.1:8000;
-        proxy_set_header Host $host;
-        proxy_set_header X-Real-IP $remote_addr;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-}
-```
+Saved to `./output/metrics.csv` with processing times, throughput, GPU utilization, and capacity planning data.
 
 ## Troubleshooting
 
-### Common Issues
+### Container Restart Issues (LXC/Docker)
 
-**GPU Not Detected in Metrics:**
+**Problem:** After container restart: `Unable to load libcudnn_ops.so.9`
+
+**Solution:**
 ```bash
-# Test GPU detection
-nvidia-smi --query-gpu=name --format=csv,noheader,nounits | sed 's/^NVIDIA //'
+# Check if CUDA libraries are found
+source venv/bin/activate
+echo $LD_LIBRARY_PATH
+ls -la $(python -c "import site; print(site.getsitepackages()[0])")/nvidia/cudnn/lib/
 
-# Check API health
+# If empty or missing, apply the Container Restart Fix from installation section
+```
+
+**Verify fix works:**
+```bash
+python -c "
+import torch
+from faster_whisper import WhisperModel
+print(f'CUDA: {torch.cuda.is_available()}')
+print(f'GPU: {torch.cuda.get_device_name(0)}')
+model = WhisperModel('tiny', device='cuda')
+print('✅ All working!')
+"
+```
+
+### GPU Not Detected
+```bash
+nvidia-smi --query-gpu=name --format=csv,noheader,nounits
 curl http://localhost:8000/health
 ```
 
-**Model Loading Issues:**
+### Model Loading Issues
 ```bash
-# Test model support
-curl http://localhost:8000/config
-
 # Validate configuration
 python -c "from config_manager import WhisperConfigManager; WhisperConfigManager().validate_config()"
 ```
 
-**CUDA/cuDNN Library Errors:**
+### CUDA Library Errors
 ```bash
-# Verify LD_LIBRARY_PATH is set correctly
+# Verify LD_LIBRARY_PATH after venv activation
+source venv/bin/activate
 echo $LD_LIBRARY_PATH
-
-# Check if CUDA libraries are found
 ldconfig -p | grep cuda
 ```
 
-### Blackwell GPU Specific Issues 🆕
+### Blackwell GPU Performance (RTX 50XX)
+If your RTX 5080/5090 is slower than expected, the system should automatically use optimized mixed precision (int8_float16). Check the startup logs for "Blackwell optimization" messages.
 
-**CUDA Compatibility Issues (RTX 50XX):**
-```bash
-# Check CUDA version compatibility
-nvidia-smi
-nvcc --version
+### Low Performance
+1. **Check GPU utilization**: `nvidia-smi` during transcription
+2. **Adjust batch size**: Increase in config for more VRAM
+3. **Use smaller models**: `medium` or `small` for faster processing
 
-# Verify PyTorch CUDA version
-python -c "import torch; print(f'PyTorch CUDA: {torch.version.cuda}')"
+## ⚠️ Disclaimer
 
-# For Blackwell with CUDA 12.8, use native cu128
-```
+**USE AT YOUR OWN RISK**
 
-**Compute Capability Not Supported:**
-```bash
-# Check if your GPU compute capability is supported
-python -c "
-import torch
-if torch.cuda.is_available():
-    cap = torch.cuda.get_device_capability(0)
-    print(f'Compute capability: {cap}')
-    if cap[0] >= 9:  # Blackwell is 9.0
-        print('✅ Blackwell GPU detected and supported')
-    else:
-        print(f'⚠️ Older GPU architecture: {cap}')
-else:
-    print('❌ CUDA not available')
-"
-```
+This software is provided "as is" without warranty of any kind. The author(s) assume **NO LIABILITY** for any damages, losses, or issues that may occur from using this software, including but not limited to: data loss, hardware damage, system failures, network issues, natural disasters, cosmic events, or any other consequences whatsoever.
 
-**Memory Issues on High-End Blackwell GPUs:**
-```bash
-# RTX 5090 has 32GB VRAM - you can run larger models!
-# Update config for better performance:
-
-# In whisper_config.yaml for RTX 5090:
-model:
-  default_model: "large-v3"
-  vram_usage_gb: 4.7
-  batch_size: 8  # Increase batch size for more VRAM
-```
-
-**faster-whisper Compatibility:**
-```bash
-# If you get model loading errors, try newest faster-whisper
-pip install --upgrade faster-whisper
-
-# Or specific version known to work with Blackwell:
-pip install faster-whisper>=1.1.0
-```
-
-**PyTorch CUDA Version Mismatch:**
-```bash
-# If you get CUDA runtime errors:
-pip uninstall torch torchaudio
-
-# For Blackwell GPUs with CUDA 12.8 (use native cu128):
-pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu128
-
-# Verify installation
-python -c "
-import torch
-print(f'CUDA available: {torch.cuda.is_available()}')
-print(f'System CUDA (nvcc): Check with nvcc --version')
-print(f'PyTorch CUDA: {torch.version.cuda}')
-print(f'cuDNN version: {torch.backends.cudnn.version()}')
-"
-```
-
-**Driver Version Requirements:**
-```bash
-# Blackwell GPUs need driver 560+ 
-nvidia-smi | head -3
-
-# If driver is too old:
-sudo apt update
-sudo apt install nvidia-driver-560  # or latest
-sudo reboot
-```
-
-### Language Detection Issues
-
-```bash
-# Check configuration
-curl http://localhost:8000/config | grep auto_detect
-
-# Test with manual language
-curl -X POST "..." -F "files=@audio.wav" -F "language=de"
-```
-
-### GPU Memory Issues
-
-```bash
-# Check GPU memory usage
-nvidia-smi
-
-# Free GPU memory via API
-curl -X POST http://localhost:8000/free-vram
-
-# Adjust model in config for lower VRAM usage
-# large-v3: 4.7GB → medium: 2.4GB → small: 1.2GB
-```
-
-**Configuration Validation Errors:**
-```bash
-# Check config syntax
-python -c "import yaml; yaml.safe_load(open('whisper_config.yaml'))"
-
-# View detailed validation
-python whisper_api.py
-```
-
-### Performance Optimization
-
-1. **Model Selection**: Choose appropriate model for quality/speed trade-off
-   - `large-v3-german` for best German accuracy
-   - `medium` for balanced performance
-   - `small` for maximum speed
-
-2. **VRAM Optimization**: 
-   - Use smaller models if memory is limited
-   - Adjust `batch_size` in config
-   - Monitor usage with `nvidia-smi`
-
-3. **Storage**: Use SSD for temporary files
-
-4. **Language Settings**: 
-   - Disable auto-detection if you know the language
-   - Use language-specific models when available
-
-## Contributing
-
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Add tests if applicable
-5. Submit a pull request
+By using this software, you acknowledge that you use it entirely at your own risk and take full responsibility for any outcomes.
 
 ## License
 
 This project is licensed under the **Creative Commons Attribution-NonCommercial 4.0 International License (CC BY-NC 4.0)**.
 
 ### 🆓 Non-Commercial Use (Free)
-
-You are free to:
-- ✅ **Share** — copy and redistribute in any medium or format
-- ✅ **Adapt** — remix, transform, and build upon the material
-- ✅ **Personal use** — individual transcription projects
-- ✅ **Educational use** — research, learning, teaching
-- ✅ **Open source projects** — non-profit community projects
-
-**Under the following terms:**
-- **Attribution** — You must give appropriate credit and link to the license
-- **NonCommercial** — You may not use the material for commercial purposes
+- ✅ Personal use, education, research, open source projects
 
 ### 💼 Commercial Use License
-
-For commercial use, you need a separate commercial license:
-- 🏢 **Business services** — Offering transcription services to customers
-- 💰 **Revenue generation** — Any use that generates income  
-- 🔗 **SaaS platforms** — Commercial web services
-- 🏭 **Enterprise deployment** — Large-scale commercial use
-
-**To obtain a commercial license:**
-- Email: [your.email@domain.de]
-- Subject: "Commercial License - Whisper Batch API"
-- Describe your intended commercial use case
-
----
+For commercial use, open an issue in this repository or contact via GitHub.
 
 [![License: CC BY-NC 4.0](https://img.shields.io/badge/License-CC%20BY--NC%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc/4.0/)
-
-**Full license text:** [Creative Commons BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/)
 
 ## Acknowledgments
 
 - OpenAI for the Whisper model
-- SYSTRAN for the Faster-Whisper implementation
+- SYSTRAN for the Faster-Whisper implementation  
 - FastAPI team for the excellent web framework

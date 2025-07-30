@@ -312,14 +312,18 @@ async def transcribe_batch(
             print(f"🎵 REAL audio length: {real_audio_length:.2f} minutes")
             
             # Transcription
-            print(f"🎯 Starting transcription for {file.filename}")
+            batch_size = model_instance['batch_size']
+
+            print(f"🎯 Starting batched transcription for {file.filename}")
+            print(f"🔢 Using batch_size: {batch_size}")
             print(f"🗣️ Language mode: {language_mode}")
             start_time = time.time()
-            
+
             segments, info = model_instance['model'].transcribe(
                 file_path,
-                language=whisper_language,  # None for auto-detect, or specific language
-                task="transcribe"
+                language=whisper_language,
+                task="transcribe",
+                batch_size=batch_size
             )
             
             transcript = " ".join([segment.text for segment in segments])

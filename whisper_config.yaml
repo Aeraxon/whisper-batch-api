@@ -9,9 +9,9 @@ single_worker:
   
 # Main model configuration - Change here to switch between large-v2 and large-v3
 model:
-  default_model: "large-v2"  # Options: "large-v2", "large-v3"
+  default_model: "large-v3"  # Options: "large-v2", "large-v3"
   vram_usage_gb: 4.7        # VRAM usage for large models
-  batch_size: 4             # Optimal batch size for large models
+  batch_size: 24             # Optimal batch size for large models
   expected_throughput: 3000 # Expected files per hour
 
 # Language settings
