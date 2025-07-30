@@ -40,4 +40,4 @@ Thumbs.db
 model_cache/
 
 #Custom
-setup_whisper_cuda.sh
+setup_whisper_cuda.shsetup_*.sh
