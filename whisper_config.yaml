@@ -24,8 +24,8 @@ concurrent_processing:
   
   # VRAM calculation parameters (fine-tune if needed)
   base_model_vram_gb: 4.7    # Base Whisper model VRAM usage
-  overhead_per_file_gb: 0.4  # VRAM overhead per concurrent file
-  safety_buffer_gb: 1.0      # Safety buffer to prevent OOM
+  overhead_per_file_gb: 0.3  # VRAM overhead per concurrent file (reduced from 0.4)
+  safety_buffer_gb: 0.5      # Safety buffer to prevent OOM (reduced from 1.0)
 
 # Language settings
 language:

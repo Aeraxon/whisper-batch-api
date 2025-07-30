@@ -125,50 +125,58 @@ def save_metrics_to_csv(metrics_data):
         writer = csv.DictWriter(f, fieldnames=metrics_data.keys())
         writer.writerow(metrics_data)
 
-def get_optimal_gpu_settings(gpu_name, total_vram_gb, base_model_vram=4.7, overhead_per_file=0.4, safety_buffer=1.0):
+def get_optimal_gpu_settings(gpu_name, total_vram_gb, base_model_vram=4.7, overhead_per_file=0.3, safety_buffer=0.5, avg_file_length_min=6.0):
     """Pure VRAM-based scaling that works for ANY GPU model"""
     
     # Use configurable parameters
     BASE_MODEL_VRAM = base_model_vram
-    OVERHEAD_PER_CONCURRENT = overhead_per_file
+    BASE_OVERHEAD = overhead_per_file
     VRAM_SAFETY_BUFFER = safety_buffer
     
     # Calculate available VRAM for concurrent processing
     usable_vram = total_vram_gb - BASE_MODEL_VRAM - VRAM_SAFETY_BUFFER
     
     if usable_vram <= 0:
-        # Not enough VRAM even for base model
         print(f"⚠️ Very low VRAM ({total_vram_gb:.1f}GB) - using minimal settings")
         return {'max_concurrent': 1, 'batch_size_multiplier': 0.5, 'vram_usage': 0.6}
     
-    # Calculate max concurrent files based on usable VRAM
-    max_concurrent_by_vram = int(usable_vram / OVERHEAD_PER_CONCURRENT)
+    # DYNAMIC FILE LENGTH SCALING: Adjust overhead based on file length
+    # Shorter files need less VRAM per file, longer files need more
+    length_factor = max(0.4, min(2.5, avg_file_length_min / 8))  # 0.4x to 2.5x scaling
+    adjusted_overhead = BASE_OVERHEAD * length_factor
     
-    # Scale settings based on total VRAM amount
+    # Calculate max concurrent files based on adjusted VRAM usage
+    max_concurrent_by_vram = int(usable_vram / adjusted_overhead)
+    
+    # Scale settings based on total VRAM amount - FIXED tiers for better scaling
     if total_vram_gb >= 80:  # Ultra high-end (H100, B200, etc.)
         vram_usage = 0.92
         batch_multiplier = 1.5
-        max_concurrent = min(max_concurrent_by_vram, 20)  # Cap at 20 for stability
+        max_concurrent = min(max_concurrent_by_vram, 80)  # MUCH more aggressive (was 20)
     elif total_vram_gb >= 40:  # High-end (A100, A6000 Ada, etc.)
         vram_usage = 0.90
         batch_multiplier = 1.3
-        max_concurrent = min(max_concurrent_by_vram, 16)
+        max_concurrent = min(max_concurrent_by_vram, 50)  # MUCH more aggressive (was 16)
     elif total_vram_gb >= 20:  # Performance (RTX 4090, etc.)
+        vram_usage = 0.87
+        batch_multiplier = 1.2
+        max_concurrent = min(max_concurrent_by_vram, 35)  # MUCH more aggressive (was 14)
+    elif total_vram_gb >= 16:  # Upper mid-range (RTX 5080, etc.)
         vram_usage = 0.85
         batch_multiplier = 1.1
-        max_concurrent = min(max_concurrent_by_vram, 12)
-    elif total_vram_gb >= 12:  # Mid-range (RTX 3060, A2000, etc.)
-        vram_usage = 0.80
+        max_concurrent = min(max_concurrent_by_vram, 28)  # MUCH more aggressive (was 12)
+    elif total_vram_gb >= 12:  # Mid-range (A2000, etc.)
+        vram_usage = 0.82
         batch_multiplier = 0.9
-        max_concurrent = min(max_concurrent_by_vram, 8)
-    elif total_vram_gb >= 8:   # Entry-level (GTX 1080, P4000, etc.)
-        vram_usage = 0.75
+        max_concurrent = min(max_concurrent_by_vram, 20)  # MUCH more aggressive (was 8)
+    elif total_vram_gb >= 8:   # Entry-level
+        vram_usage = 0.78
         batch_multiplier = 0.7
-        max_concurrent = min(max_concurrent_by_vram, 4)
-    elif total_vram_gb >= 4:   # Very low-end (P4, GTX 1050, etc.)
-        vram_usage = 0.70
+        max_concurrent = min(max_concurrent_by_vram, 12)  # MUCH more aggressive (was 6)
+    elif total_vram_gb >= 4:   # Very low-end
+        vram_usage = 0.75
         batch_multiplier = 0.6
-        max_concurrent = min(max_concurrent_by_vram, 2)
+        max_concurrent = min(max_concurrent_by_vram, 6)   # More aggressive (was 3)
     else:  # <4GB - probably won't work but try
         vram_usage = 0.65
         batch_multiplier = 0.5
@@ -177,8 +185,11 @@ def get_optimal_gpu_settings(gpu_name, total_vram_gb, base_model_vram=4.7, overh
     # Ensure minimum of 1 concurrent file
     max_concurrent = max(1, max_concurrent)
     
-    print(f"🎯 VRAM-based scaling: {total_vram_gb:.1f}GB → {max_concurrent} concurrent files")
-    print(f"   Usable VRAM: {usable_vram:.1f}GB, Overhead per file: {OVERHEAD_PER_CONCURRENT}GB")
+    print(f"🚀 DYNAMIC scaling: {total_vram_gb:.1f}GB → {max_concurrent} concurrent files")
+    print(f"   File length: {avg_file_length_min:.1f}min → {length_factor:.1f}x overhead factor")
+    print(f"   Base overhead: {BASE_OVERHEAD:.2f}GB → Adjusted: {adjusted_overhead:.2f}GB per file")
+    print(f"   VRAM allows: {max_concurrent_by_vram}, Using: {max_concurrent}")
+    print(f"   VRAM efficiency: {(BASE_MODEL_VRAM + max_concurrent * adjusted_overhead) / total_vram_gb:.0%}")
     
     return {
         'max_concurrent': max_concurrent,
@@ -401,12 +412,17 @@ async def process_files_concurrently(files: List[UploadFile], model_instance, wh
     if config.is_auto_gpu_scaling_enabled():
         # Get current GPU info
         gpu_info = get_gpu_info()
+        
+        # Calculate average file length for dynamic scaling
+        avg_file_length = sum(task.real_audio_length for task in tasks) / len(tasks) if tasks else 6.0
+        
         gpu_settings = get_optimal_gpu_settings(
             gpu_info['gpu_model'], 
             gpu_info['vram_total_gb'],
             config.concurrent_processing.base_model_vram_gb,
             config.concurrent_processing.overhead_per_file_gb,
-            config.concurrent_processing.safety_buffer_gb
+            config.concurrent_processing.safety_buffer_gb,
+            avg_file_length
         )
         max_concurrent = gpu_settings['max_concurrent']
         print(f"🎯 Auto GPU scaling: {gpu_info['gpu_model']} -> max_concurrent={max_concurrent}")
