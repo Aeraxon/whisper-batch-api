@@ -38,3 +38,6 @@ Thumbs.db
 *.mp3
 *.mp4
 model_cache/
+
+#Custom
+setup_whisper_cuda.sh
