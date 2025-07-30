@@ -382,10 +382,11 @@ def check_vram_safety(max_concurrent, gpu_info, estimated_model_vram_gb=5.0):
 class DynamicVRAMScaler:
     """Real-time VRAM monitoring and concurrent file scaling"""
     
-    def __init__(self, config, initial_concurrent):
+    def __init__(self, config, initial_concurrent, total_files=None):
         self.config = config
         self.current_concurrent = initial_concurrent
         self.files_processed = 0
+        self.total_files = total_files or 999999  # Default to very high if not specified
         self.scaling_enabled = config.concurrent_processing.dynamic_vram_scaling
         self.target_min = config.concurrent_processing.target_vram_min
         self.target_max = config.concurrent_processing.target_vram_max
@@ -445,11 +446,17 @@ class DynamicVRAMScaler:
                 # VRAM usage too low - increase concurrency
                 old_concurrent = self.current_concurrent
                 
-                # Dynamic max concurrent limit based on GPU VRAM (more aggressive now)
-                max_safe_concurrent = max(6, int(vram_total_gb * 3))  # ~3 files per GB for maximum utilization
-                self.current_concurrent = min(self.current_concurrent + self.step_size, max_safe_concurrent)
+                # Calculate remaining files to process
+                remaining_files = self.total_files - self.files_processed
                 
-                print(f"🔼 VRAM {current_vram_pct:.0%} < {self.target_min:.0%} → Increasing {old_concurrent} → {self.current_concurrent} concurrent files (max: {max_safe_concurrent})")
+                # Dynamic max concurrent limit based on GPU VRAM and remaining files
+                max_gpu_concurrent = max(6, int(vram_total_gb * 4))  # ~4 files per GB for maximum utilization
+                max_practical_concurrent = min(max_gpu_concurrent, remaining_files)  # Don't exceed remaining files
+                
+                self.current_concurrent = min(self.current_concurrent + self.step_size, max_practical_concurrent)
+                
+                print(f"🔼 VRAM {current_vram_pct:.0%} < {self.target_min:.0%} → Increasing {old_concurrent} → {self.current_concurrent} concurrent files")
+                print(f"   📊 GPU limit: {max_gpu_concurrent}, Remaining files: {remaining_files}, Using: {max_practical_concurrent}")
                 self.last_scaling_time = time.time()  # Reset time counter
                 return self.current_concurrent
             else:
@@ -504,6 +511,12 @@ async def process_files_concurrently(files: List[UploadFile], model_instance, wh
         # Get current GPU info
         gpu_info = get_gpu_info()
         
+        # Debug GPU detection
+        print(f"🔍 GPU Detection Debug:")
+        print(f"   Model: {gpu_info['gpu_model']}")
+        print(f"   Total VRAM: {gpu_info['vram_total_gb']:.1f}GB")
+        print(f"   Used VRAM: {gpu_info['vram_used_mb']:.0f}MB")
+        
         # Calculate average file length for dynamic scaling
         avg_file_length = sum(task.real_audio_length for task in tasks) / len(tasks) if tasks else 6.0
         
@@ -516,7 +529,7 @@ async def process_files_concurrently(files: List[UploadFile], model_instance, wh
             avg_file_length
         )
         max_concurrent = gpu_settings['max_concurrent']
-        print(f"🎯 Auto GPU scaling: {gpu_info['gpu_model']} -> max_concurrent={max_concurrent}")
+        print(f"🎯 Auto GPU scaling: {gpu_info['gpu_model']} ({gpu_info['vram_total_gb']:.1f}GB) -> max_concurrent={max_concurrent}")
         
         # VRAM safety check to prevent crashes
         max_concurrent = check_vram_safety(max_concurrent, gpu_info)
@@ -532,7 +545,7 @@ async def process_files_concurrently(files: List[UploadFile], model_instance, wh
         max_concurrent = int(max_concurrent)  # Ensure integer
     
     # Initialize dynamic VRAM scaler
-    vram_scaler = DynamicVRAMScaler(config, max_concurrent)
+    vram_scaler = DynamicVRAMScaler(config, max_concurrent, len(tasks))
     current_concurrent = max_concurrent
     
     print(f"🚀 Processing {len(tasks)} files with initial max_concurrent={max_concurrent}")
@@ -555,10 +568,16 @@ async def process_files_concurrently(files: List[UploadFile], model_instance, wh
             nonlocal current_concurrent
             while not scaling_stop_event.is_set():
                 if vram_scaler.should_check_scaling():
+                    # Update remaining files based on current progress
+                    remaining_files = len(pending_tasks) + len(active_futures)
+                    vram_scaler.total_files = vram_scaler.files_processed + remaining_files
+                    
                     new_concurrent = vram_scaler.adjust_concurrency()
                     if new_concurrent != current_concurrent:
+                        old_current = current_concurrent
                         current_concurrent = new_concurrent
-                        # Note: Can't add new futures here due to thread safety, will be handled in main loop
+                        print(f"⏰ Time-based scaling: {old_current} → {current_concurrent} concurrent files")
+                        # Note: New futures will be added in main loop on next iteration
                 time.sleep(5)  # Check every 5 seconds
         
         if vram_scaler.scaling_enabled:
@@ -576,6 +595,14 @@ async def process_files_concurrently(files: List[UploadFile], model_instance, wh
             
             # Process results and maintain optimal concurrency
             while active_futures or pending_tasks:
+                # First, check if background scaling changed concurrency and add tasks if needed
+                if len(active_futures) < current_concurrent and pending_tasks:
+                    tasks_to_add = current_concurrent - len(active_futures)
+                    for _ in range(min(tasks_to_add, len(pending_tasks))):
+                        new_task = pending_tasks.pop(0)
+                        new_future = executor.submit(process_single_file_sync, new_task, model_instance, whisper_language, language_mode, model_name)
+                        active_futures[new_future] = new_task
+                
                 if active_futures:
                     # Wait for at least one task to complete (no timeout to avoid TimeoutError)
                     try:
@@ -600,10 +627,20 @@ async def process_files_concurrently(files: List[UploadFile], model_instance, wh
                             # Check if we should adjust concurrency
                             new_concurrent = vram_scaler.file_completed()
                             if new_concurrent != current_concurrent:
+                                old_current = current_concurrent
                                 current_concurrent = new_concurrent
-                                print(f"🔄 Dynamic scaling: adjusting to {current_concurrent} concurrent files")
+                                print(f"🔄 Dynamic scaling: adjusting from {old_current} to {current_concurrent} concurrent files")
+                                
+                                # If scaling up, immediately add more tasks
+                                if current_concurrent > old_current and pending_tasks:
+                                    tasks_to_add = current_concurrent - len(active_futures)
+                                    for _ in range(min(tasks_to_add, len(pending_tasks))):
+                                        new_task = pending_tasks.pop(0)
+                                        new_future = executor.submit(process_single_file_sync, new_task, model_instance, whisper_language, language_mode, model_name)
+                                        active_futures[new_future] = new_task
+                                        print(f"⚡ Immediately added task: {new_task.file.filename}")
                             
-                            # Submit new tasks to maintain desired concurrency
+                            # Submit new tasks to maintain desired concurrency (for normal operation)
                             while len(active_futures) < current_concurrent and pending_tasks:
                                 new_task = pending_tasks.pop(0)
                                 new_future = executor.submit(process_single_file_sync, new_task, model_instance, whisper_language, language_mode, model_name)
