@@ -1,6 +1,40 @@
-venv/
-output/
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
 *.pyc
-.env
+*.pyo
+*.pyd
+.Python
+pip-log.txt
+pip-delete-this-directory.txt
+
+# Virtual Environment
+venv/
+env/
+ENV/
+.venv/
+.env/
+
+# Output/Data
+output/
+data/
+logs/
 *.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project specific
+*.wav
+*.mp3
+*.mp4
+model_cache/
