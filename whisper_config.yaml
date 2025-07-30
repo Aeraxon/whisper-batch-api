@@ -13,6 +13,19 @@ model:
   vram_usage_gb: 4.7        # VRAM usage for large models
   batch_size: 24             # Optimal batch size for large models
   expected_throughput: 3000 # Expected files per hour
+  
+# Concurrent processing for GPU optimization
+concurrent_processing:
+  enabled: true              # Enable concurrent file processing
+  max_concurrent_files: 20   # Max files processed simultaneously (auto-adjusted per GPU)
+  adaptive_batching: true    # Dynamically adjust based on file sizes
+  vram_threshold: 0.9       # Use up to 90% of available VRAM (aggressive)
+  auto_gpu_scaling: true     # Automatically optimize settings per GPU model
+  
+  # VRAM calculation parameters (fine-tune if needed)
+  base_model_vram_gb: 4.7    # Base Whisper model VRAM usage
+  overhead_per_file_gb: 0.4  # VRAM overhead per concurrent file
+  safety_buffer_gb: 1.0      # Safety buffer to prevent OOM
 
 # Language settings
 language:

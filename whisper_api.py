@@ -15,9 +15,21 @@ from datetime import datetime
 import pynvml
 from collections import Counter
 import soundfile as sf  # For real audio length measurement
+import concurrent.futures
+from dataclasses import dataclass
 
 # FastAPI App
 app = FastAPI(title="Whisper Large-v2/v3 Batch API", version="1.0.0")
+
+@dataclass
+class FileProcessingTask:
+    """Data structure for individual file processing tasks"""
+    file: UploadFile
+    index: int
+    file_path: str
+    file_size_mb: float
+    real_audio_length: float
+    audio_format: str
 
 # Load Configuration
 try:
@@ -68,7 +80,8 @@ def init_metrics_csv():
             'vram_used_mb', 'gpu_utilization_percent', 'error_rate_percent',
             'avg_language_confidence', 'audio_formats', 'model_load_time_s',
             'avg_transcript_length_chars', 'transcribable_minutes_per_hour',
-            'transcribable_minutes_per_day', 'real_time_factor'
+            'transcribable_minutes_per_day', 'real_time_factor', 'concurrent_processing',
+            'max_concurrent_files'
         ]
         
         with open(METRICS_CSV, 'w', newline='', encoding='utf-8') as f:
@@ -112,6 +125,67 @@ def save_metrics_to_csv(metrics_data):
         writer = csv.DictWriter(f, fieldnames=metrics_data.keys())
         writer.writerow(metrics_data)
 
+def get_optimal_gpu_settings(gpu_name, total_vram_gb, base_model_vram=4.7, overhead_per_file=0.4, safety_buffer=1.0):
+    """Pure VRAM-based scaling that works for ANY GPU model"""
+    
+    # Use configurable parameters
+    BASE_MODEL_VRAM = base_model_vram
+    OVERHEAD_PER_CONCURRENT = overhead_per_file
+    VRAM_SAFETY_BUFFER = safety_buffer
+    
+    # Calculate available VRAM for concurrent processing
+    usable_vram = total_vram_gb - BASE_MODEL_VRAM - VRAM_SAFETY_BUFFER
+    
+    if usable_vram <= 0:
+        # Not enough VRAM even for base model
+        print(f"⚠️ Very low VRAM ({total_vram_gb:.1f}GB) - using minimal settings")
+        return {'max_concurrent': 1, 'batch_size_multiplier': 0.5, 'vram_usage': 0.6}
+    
+    # Calculate max concurrent files based on usable VRAM
+    max_concurrent_by_vram = int(usable_vram / OVERHEAD_PER_CONCURRENT)
+    
+    # Scale settings based on total VRAM amount
+    if total_vram_gb >= 80:  # Ultra high-end (H100, B200, etc.)
+        vram_usage = 0.92
+        batch_multiplier = 1.5
+        max_concurrent = min(max_concurrent_by_vram, 20)  # Cap at 20 for stability
+    elif total_vram_gb >= 40:  # High-end (A100, A6000 Ada, etc.)
+        vram_usage = 0.90
+        batch_multiplier = 1.3
+        max_concurrent = min(max_concurrent_by_vram, 16)
+    elif total_vram_gb >= 20:  # Performance (RTX 4090, etc.)
+        vram_usage = 0.85
+        batch_multiplier = 1.1
+        max_concurrent = min(max_concurrent_by_vram, 12)
+    elif total_vram_gb >= 12:  # Mid-range (RTX 3060, A2000, etc.)
+        vram_usage = 0.80
+        batch_multiplier = 0.9
+        max_concurrent = min(max_concurrent_by_vram, 8)
+    elif total_vram_gb >= 8:   # Entry-level (GTX 1080, P4000, etc.)
+        vram_usage = 0.75
+        batch_multiplier = 0.7
+        max_concurrent = min(max_concurrent_by_vram, 4)
+    elif total_vram_gb >= 4:   # Very low-end (P4, GTX 1050, etc.)
+        vram_usage = 0.70
+        batch_multiplier = 0.6
+        max_concurrent = min(max_concurrent_by_vram, 2)
+    else:  # <4GB - probably won't work but try
+        vram_usage = 0.65
+        batch_multiplier = 0.5
+        max_concurrent = 1
+    
+    # Ensure minimum of 1 concurrent file
+    max_concurrent = max(1, max_concurrent)
+    
+    print(f"🎯 VRAM-based scaling: {total_vram_gb:.1f}GB → {max_concurrent} concurrent files")
+    print(f"   Usable VRAM: {usable_vram:.1f}GB, Overhead per file: {OVERHEAD_PER_CONCURRENT}GB")
+    
+    return {
+        'max_concurrent': max_concurrent,
+        'batch_size_multiplier': batch_multiplier,
+        'vram_usage': vram_usage
+    }
+
 def get_gpu_info():
     """Gather GPU information using nvidia-smi command"""
     try:
@@ -131,6 +205,7 @@ def get_gpu_info():
             util = pynvml.nvmlDeviceGetUtilizationRates(handle)
             
             vram_used_mb = memory_info.used / (1024**2)
+            vram_total_gb = memory_info.total / (1024**3)  # Get total VRAM in GB
             gpu_utilization = util.gpu
         except Exception as pynvml_error:
             print(f"⚠️ pynvml error (using fallback): {pynvml_error}")
@@ -140,18 +215,25 @@ def get_gpu_info():
                 mem_result = subprocess.run(mem_cmd, shell=True, capture_output=True, text=True, timeout=10)
                 vram_used_mb = float(mem_result.stdout.strip()) if mem_result.returncode == 0 else 0
                 
+                # Get total VRAM
+                total_mem_cmd = "nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits"
+                total_result = subprocess.run(total_mem_cmd, shell=True, capture_output=True, text=True, timeout=10)
+                vram_total_gb = float(total_result.stdout.strip()) / 1024 if total_result.returncode == 0 else 12  # Default 12GB
+                
                 util_cmd = "nvidia-smi --query-gpu=utilization.gpu --format=csv,noheader,nounits"
                 util_result = subprocess.run(util_cmd, shell=True, capture_output=True, text=True, timeout=10)
                 gpu_utilization = int(util_result.stdout.strip()) if util_result.returncode == 0 else 0
             except:
                 vram_used_mb = 0
+                vram_total_gb = 12  # Default fallback
                 gpu_utilization = 0
         
-        print(f"🔍 GPU Info - Name: {gpu_name}, VRAM: {vram_used_mb:.0f}MB, Utilization: {gpu_utilization}%")
+        print(f"🔍 GPU Info - Name: {gpu_name}, VRAM: {vram_used_mb:.0f}MB/{vram_total_gb:.1f}GB, Utilization: {gpu_utilization}%")
         
         return {
             'gpu_model': gpu_name,
             'vram_used_mb': vram_used_mb,
+            'vram_total_gb': vram_total_gb,
             'gpu_utilization_percent': gpu_utilization
         }
         
@@ -168,6 +250,7 @@ def get_gpu_info():
         return {
             'gpu_model': gpu_name,
             'vram_used_mb': 0,
+            'vram_total_gb': 12,  # Default fallback
             'gpu_utilization_percent': 0
         }
 
@@ -196,6 +279,201 @@ def save_transcript_to_file(transcript, filename, processing_time, model_used, a
     print(f"✅ Transcript saved: {output_file}")
     return output_file
 
+def process_single_file_sync(task: FileProcessingTask, model_instance, whisper_language, language_mode, model_name):
+    """Synchronous function to process a single file (for use with ThreadPoolExecutor)"""
+    try:
+        print(f"🎯 Processing file {task.index + 1}: {task.file.filename}")
+        print(f"🎵 Audio length: {task.real_audio_length:.2f} min, Size: {task.file_size_mb:.1f}MB")
+        
+        start_time = time.time()
+        batch_size = model_instance['batch_size']
+        
+        # Try with full batch size first
+        try:
+            segments, info = model_instance['model'].transcribe(
+                task.file_path,
+                language=whisper_language,
+                task="transcribe",
+                batch_size=batch_size
+            )
+        except Exception as e:
+            # If CUDA OOM, try with reduced batch size
+            if "out of memory" in str(e).lower() or "cuda" in str(e).lower():
+                print(f"⚠️ CUDA OOM detected, reducing batch size from {batch_size} to {batch_size//2}")
+                segments, info = model_instance['model'].transcribe(
+                    task.file_path,
+                    language=whisper_language,
+                    task="transcribe",
+                    batch_size=max(1, batch_size//2)
+                )
+            else:
+                raise e
+        
+        transcript = " ".join([segment.text for segment in segments])
+        processing_time = time.time() - start_time
+        real_time_factor = (task.real_audio_length * 60 / processing_time) if processing_time > 0 else 0
+        
+        print(f"⏱️ File {task.index + 1} completed in {processing_time:.2f}s (RTF: {real_time_factor:.1f}x)")
+        
+        # Save transcript
+        output_file = save_transcript_to_file(
+            transcript, 
+            task.file.filename, 
+            processing_time, 
+            model_name, 
+            task.real_audio_length,
+            info.language,
+            info.language_probability,
+            language_mode
+        )
+        
+        return {
+            "filename": task.file.filename,
+            "transcript": transcript.strip(),
+            "detected_language": info.language,
+            "language_probability": info.language_probability,
+            "processing_time": processing_time,
+            "real_audio_length_min": task.real_audio_length,
+            "real_time_factor": real_time_factor,
+            "status": "success",
+            "saved_to": str(output_file),
+            "file_size_mb": task.file_size_mb,
+            "transcript_length": len(transcript)
+        }
+        
+    except Exception as e:
+        print(f"❌ Error processing {task.file.filename}: {str(e)}")
+        return {
+            "filename": task.file.filename,
+            "error": str(e),
+            "status": "failed"
+        }
+
+def check_vram_safety(max_concurrent, gpu_info, estimated_model_vram_gb=5.0):
+    """Check if concurrent processing is safe for VRAM"""
+    total_vram_gb = gpu_info['vram_total_gb']
+    used_vram_gb = gpu_info['vram_used_mb'] / 1024
+    available_vram_gb = total_vram_gb - used_vram_gb
+    
+    # Estimate VRAM needed (model + overhead per concurrent process)
+    estimated_needed_gb = estimated_model_vram_gb + (max_concurrent * 0.5)  # 0.5GB overhead per concurrent file
+    
+    if estimated_needed_gb > available_vram_gb * 0.95:  # 95% safety threshold
+        # Reduce concurrency to fit in available VRAM
+        safe_concurrent = max(1, int(available_vram_gb / (estimated_model_vram_gb / max_concurrent + 0.5)))
+        print(f"⚠️ VRAM Safety: Reducing from {max_concurrent} to {safe_concurrent} concurrent files")
+        print(f"   Available VRAM: {available_vram_gb:.1f}GB, Estimated need: {estimated_needed_gb:.1f}GB")
+        return safe_concurrent
+    
+    return max_concurrent
+
+async def process_files_concurrently(files: List[UploadFile], model_instance, whisper_language, language_mode, model_name):
+    """Process files concurrently using ThreadPoolExecutor with VRAM safety"""
+    
+    # Prepare all files first
+    tasks = []
+    for i, file in enumerate(files):
+        file_path = f"/tmp/whisper_batch_{int(time.time())}_{i}_{file.filename}"
+        
+        # Save file to disk
+        async with aiofiles.open(file_path, 'wb') as f:
+            content = await file.read()
+            await f.write(content)
+        
+        file_size_mb = len(content) / (1024**2)
+        file_ext = os.path.splitext(file.filename)[1]
+        real_audio_length = get_real_audio_duration(file_path)
+        
+        task = FileProcessingTask(
+            file=file,
+            index=i,
+            file_path=file_path,
+            file_size_mb=file_size_mb,
+            real_audio_length=real_audio_length,
+            audio_format=file_ext
+        )
+        tasks.append(task)
+    
+    # Determine optimal concurrency based on config, GPU, and file characteristics
+    max_concurrent = config.get_max_concurrent_files()
+    
+    # Auto GPU scaling if enabled
+    if config.is_auto_gpu_scaling_enabled():
+        # Get current GPU info
+        gpu_info = get_gpu_info()
+        gpu_settings = get_optimal_gpu_settings(
+            gpu_info['gpu_model'], 
+            gpu_info['vram_total_gb'],
+            config.concurrent_processing.base_model_vram_gb,
+            config.concurrent_processing.overhead_per_file_gb,
+            config.concurrent_processing.safety_buffer_gb
+        )
+        max_concurrent = gpu_settings['max_concurrent']
+        print(f"🎯 Auto GPU scaling: {gpu_info['gpu_model']} -> max_concurrent={max_concurrent}")
+        
+        # VRAM safety check to prevent crashes
+        max_concurrent = check_vram_safety(max_concurrent, gpu_info)
+    
+    if config.is_adaptive_batching_enabled():
+        # Adjust based on file sizes and estimated VRAM usage
+        avg_file_duration = sum(task.real_audio_length for task in tasks) / len(tasks)
+        if avg_file_duration < 3.0:  # Very short files
+            max_concurrent = min(max_concurrent + 1, max_concurrent * 1.3)  # Allow more concurrency
+        elif avg_file_duration > 10.0:  # Longer files
+            max_concurrent = max(max_concurrent - 1, 2)  # Reduce concurrency
+        
+        max_concurrent = int(max_concurrent)  # Ensure integer
+    
+    print(f"🚀 Processing {len(tasks)} files with max_concurrent={max_concurrent}")
+    
+    # Process files concurrently
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=max_concurrent) as executor:
+        # Submit all tasks
+        future_to_task = {
+            executor.submit(process_single_file_sync, task, model_instance, whisper_language, language_mode, model_name): task
+            for task in tasks
+        }
+        
+        # Collect results as they complete
+        for future in concurrent.futures.as_completed(future_to_task):
+            task = future_to_task[future]
+            try:
+                result = future.result()
+                results.append(result)
+                print(f"✅ Completed {len(results)}/{len(tasks)}: {task.file.filename}")
+            except Exception as e:
+                print(f"❌ Exception for {task.file.filename}: {e}")
+                results.append({
+                    "filename": task.file.filename,
+                    "error": str(e),
+                    "status": "failed"
+                })
+    
+    # Clean up temporary files
+    for task in tasks:
+        if os.path.exists(task.file_path):
+            os.unlink(task.file_path)
+    
+    # Collect metrics for return
+    file_sizes = [task.file_size_mb for task in tasks]
+    audio_lengths = [task.real_audio_length for task in tasks]
+    audio_formats = [task.audio_format for task in tasks]
+    
+    successful_results = [r for r in results if r["status"] == "success"]
+    processing_times = [r["processing_time"] for r in successful_results]
+    transcript_lengths = [r["transcript_length"] for r in successful_results if "transcript_length" in r]
+    language_confidences = [r["language_probability"] for r in successful_results]
+    
+    return results, {
+        "file_sizes": file_sizes,
+        "audio_lengths": audio_lengths,
+        "audio_formats": audio_formats,
+        "processing_times": processing_times,
+        "transcript_lengths": transcript_lengths,
+        "language_confidences": language_confidences
+    }, max_concurrent
+
 @app.get("/health")
 async def health_check():
     """API Health Check with configuration info"""
@@ -216,7 +494,10 @@ async def health_check():
             "model_timeout_minutes": config.get_model_timeout_minutes(),
             "batch_size": config.get_model_batch_size(),
             "supported_models": model_manager.get_supported_models(),
-            "output_directory": config.get_output_directory()
+            "output_directory": config.get_output_directory(),
+            "concurrent_processing_enabled": config.is_concurrent_processing_enabled(),
+            "max_concurrent_files": config.get_max_concurrent_files(),
+            "adaptive_batching": config.is_adaptive_batching_enabled()
         },
         "model_status": model_status,
         "shared_gpu": True,
@@ -267,6 +548,10 @@ async def transcribe_batch(
     print(f"📋 Configuration: Model={model_name}, Language={language_mode}")
     print(f"📝 File list: {[f.filename for f in files]}")
     
+    # Check if concurrent processing is enabled
+    use_concurrent = config.is_concurrent_processing_enabled() and len(files) > 1
+    print(f"⚡ Processing mode: {'CONCURRENT' if use_concurrent else 'SEQUENTIAL'}")
+    
     # Start metric collection
     model_load_start = time.time()
     
@@ -274,114 +559,134 @@ async def transcribe_batch(
     model_instance = model_manager.get_model(model_name)
     model_load_time = time.time() - model_load_start
     
-    results = []
     total_start_time = time.time()
     saved_files = []
+    actual_concurrent_files = 1  # Default for sequential processing
     
-    # Collection for metrics
-    file_sizes = []
-    processing_times = []
-    transcript_lengths = []
-    language_confidences = []
-    audio_formats = []
-    real_audio_lengths = []
-    
-    for i, file in enumerate(files):
-        print(f"\n--- Processing {i+1}/{len(files)}: {file.filename} ---")
+    if use_concurrent:
+        # Use new concurrent processing
+        results, metrics_data, actual_concurrent_files = await process_files_concurrently(
+            files, model_instance, whisper_language, language_mode, model_name
+        )
         
-        file_path = f"/tmp/whisper_batch_{int(time.time())}_{i}_{file.filename}"
+        file_sizes = metrics_data["file_sizes"]
+        processing_times = metrics_data["processing_times"]
+        transcript_lengths = metrics_data["transcript_lengths"]
+        language_confidences = metrics_data["language_confidences"]
+        audio_formats = metrics_data["audio_formats"]
+        real_audio_lengths = metrics_data["audio_lengths"]
         
-        try:
-            # Save file
-            async with aiofiles.open(file_path, 'wb') as f:
-                content = await file.read()
-                await f.write(content)
+        # Collect saved file paths
+        saved_files = [r["saved_to"] for r in results if r["status"] == "success"]
+        
+    else:
+        # Use original sequential processing for single files or when disabled
+        results = []
+        
+        # Collection for metrics
+        file_sizes = []
+        processing_times = []
+        transcript_lengths = []
+        language_confidences = []
+        audio_formats = []
+        real_audio_lengths = []
+        
+        for i, file in enumerate(files):
+            print(f"\n--- Processing {i+1}/{len(files)}: {file.filename} ---")
             
-            file_size_mb = len(content) / (1024**2)
-            file_sizes.append(file_size_mb)
+            file_path = f"/tmp/whisper_batch_{int(time.time())}_{i}_{file.filename}"
             
-            # Audio format
-            file_ext = os.path.splitext(file.filename)[1]
-            audio_formats.append(file_ext)
-            
-            # Measure REAL audio length
-            real_audio_length = get_real_audio_duration(file_path)
-            real_audio_lengths.append(real_audio_length)
-            
-            print(f"📊 File size: {file_size_mb:.1f}MB")
-            print(f"🎵 REAL audio length: {real_audio_length:.2f} minutes")
-            
-            # Transcription
-            batch_size = model_instance['batch_size']
+            try:
+                # Save file
+                async with aiofiles.open(file_path, 'wb') as f:
+                    content = await file.read()
+                    await f.write(content)
+                
+                file_size_mb = len(content) / (1024**2)
+                file_sizes.append(file_size_mb)
+                
+                # Audio format
+                file_ext = os.path.splitext(file.filename)[1]
+                audio_formats.append(file_ext)
+                
+                # Measure REAL audio length
+                real_audio_length = get_real_audio_duration(file_path)
+                real_audio_lengths.append(real_audio_length)
+                
+                print(f"📊 File size: {file_size_mb:.1f}MB")
+                print(f"🎵 REAL audio length: {real_audio_length:.2f} minutes")
+                
+                # Transcription
+                batch_size = model_instance['batch_size']
 
-            print(f"🎯 Starting batched transcription for {file.filename}")
-            print(f"🔢 Using batch_size: {batch_size}")
-            print(f"🗣️ Language mode: {language_mode}")
-            start_time = time.time()
+                print(f"🎯 Starting batched transcription for {file.filename}")
+                print(f"🔢 Using batch_size: {batch_size}")
+                print(f"🗣️ Language mode: {language_mode}")
+                start_time = time.time()
 
-            segments, info = model_instance['model'].transcribe(
-                file_path,
-                language=whisper_language,
-                task="transcribe",
-                batch_size=batch_size
-            )
+                segments, info = model_instance['model'].transcribe(
+                    file_path,
+                    language=whisper_language,
+                    task="transcribe",
+                    batch_size=batch_size
+                )
+                
+                transcript = " ".join([segment.text for segment in segments])
+                processing_time = time.time() - start_time
+                
+                # Calculate real-time factor
+                real_time_factor = (real_audio_length * 60 / processing_time) if processing_time > 0 else 0
+                
+                processing_times.append(processing_time)
+                transcript_lengths.append(len(transcript))
+                language_confidences.append(info.language_probability)
+                
+                print(f"⏱️ Transcription completed in {processing_time:.2f}s")
+                print(f"🌍 Detected language: {info.language} (confidence: {info.language_probability:.2f})")
+                print(f"⚡ Real-time factor: {real_time_factor:.1f}x faster")
+                print(f"📄 Transcript length: {len(transcript)} characters")
+                
+                # Save transcript (with real audio length and language info)
+                output_file = save_transcript_to_file(
+                    transcript, 
+                    file.filename, 
+                    processing_time, 
+                    model_name, 
+                    real_audio_length,
+                    info.language,
+                    info.language_probability,
+                    language_mode
+                )
+                saved_files.append(str(output_file))
+                
+                result = {
+                    "filename": file.filename,
+                    "transcript": transcript.strip(),
+                    "detected_language": info.language,
+                    "language_probability": info.language_probability,
+                    "processing_time": processing_time,
+                    "real_audio_length_min": real_audio_length,
+                    "real_time_factor": real_time_factor,
+                    "status": "success",
+                    "saved_to": str(output_file),
+                    "file_size_mb": file_size_mb
+                }
+                
+                results.append(result)
+                print(f"✅ Result #{len(results)} added for {file.filename}")
+                
+            except Exception as e:
+                print(f"❌ Error with {file.filename}: {str(e)}")
+                error_result = {
+                    "filename": file.filename,
+                    "error": str(e),
+                    "status": "failed"
+                }
+                results.append(error_result)
             
-            transcript = " ".join([segment.text for segment in segments])
-            processing_time = time.time() - start_time
-            
-            # Calculate real-time factor
-            real_time_factor = (real_audio_length * 60 / processing_time) if processing_time > 0 else 0
-            
-            processing_times.append(processing_time)
-            transcript_lengths.append(len(transcript))
-            language_confidences.append(info.language_probability)
-            
-            print(f"⏱️ Transcription completed in {processing_time:.2f}s")
-            print(f"🌍 Detected language: {info.language} (confidence: {info.language_probability:.2f})")
-            print(f"⚡ Real-time factor: {real_time_factor:.1f}x faster")
-            print(f"📄 Transcript length: {len(transcript)} characters")
-            
-            # Save transcript (with real audio length and language info)
-            output_file = save_transcript_to_file(
-                transcript, 
-                file.filename, 
-                processing_time, 
-                model_name, 
-                real_audio_length,
-                info.language,
-                info.language_probability,
-                language_mode
-            )
-            saved_files.append(str(output_file))
-            
-            result = {
-                "filename": file.filename,
-                "transcript": transcript.strip(),
-                "detected_language": info.language,
-                "language_probability": info.language_probability,
-                "processing_time": processing_time,
-                "real_audio_length_min": real_audio_length,
-                "real_time_factor": real_time_factor,
-                "status": "success",
-                "saved_to": str(output_file),
-                "file_size_mb": file_size_mb
-            }
-            
-            results.append(result)
-            print(f"✅ Result #{len(results)} added for {file.filename}")
-            
-        except Exception as e:
-            print(f"❌ Error with {file.filename}: {str(e)}")
-            error_result = {
-                "filename": file.filename,
-                "error": str(e),
-                "status": "failed"
-            }
-            results.append(error_result)
-        
-        finally:
-            if os.path.exists(file_path):
-                os.unlink(file_path)
+            finally:
+                if os.path.exists(file_path):
+                    os.unlink(file_path)
     
     total_time = time.time() - total_start_time
     successful = len([r for r in results if r["status"] == "success"])
@@ -395,7 +700,8 @@ async def transcribe_batch(
         avg_language_confidence = sum(language_confidences) / len(language_confidences)
         avg_audio_length = sum(real_audio_lengths) / len(real_audio_lengths)
         
-        files_per_hour = 3600 / avg_processing_time if avg_processing_time > 0 else 0
+        # CORRECTED: Use actual wall-clock time for concurrent processing metrics
+        files_per_hour = (successful / total_time) * 3600 if total_time > 0 else 0
         files_per_day = files_per_hour * 24
         
         total_data_mb = sum(file_sizes)
@@ -404,8 +710,9 @@ async def transcribe_batch(
         audio_minutes_per_hour = files_per_hour * avg_audio_length
         audio_minutes_per_day = audio_minutes_per_hour * 24
         
-        # Real-time factor
-        real_time_factor = (avg_audio_length * 60 / avg_processing_time) if avg_processing_time > 0 else 0
+        # Real-time factor: use total audio vs total wall-clock time (not per-file average)
+        total_audio_minutes = sum(real_audio_lengths)
+        real_time_factor = (total_audio_minutes * 60 / total_time) if total_time > 0 else 0
         transcribable_minutes_per_hour = 60 * real_time_factor
         transcribable_minutes_per_day = transcribable_minutes_per_hour * 24
         
@@ -445,17 +752,23 @@ async def transcribe_batch(
             'avg_transcript_length_chars': round(avg_transcript_length, 0),
             'transcribable_minutes_per_hour': round(transcribable_minutes_per_hour, 1),
             'transcribable_minutes_per_day': round(transcribable_minutes_per_day, 0),
-            'real_time_factor': round(real_time_factor, 1)
+            'real_time_factor': round(real_time_factor, 1),
+            'concurrent_processing': use_concurrent,
+            'max_concurrent_files': actual_concurrent_files
         }
         
         save_metrics_to_csv(metrics_data)
         
-        print(f"\n📊 Real performance metrics:")
+        print(f"\n📊 CORRECTED Performance Metrics (wall-clock time):")
         print(f"   GPU: {gpu_info['gpu_model']}")
+        print(f"   Processing mode: {'CONCURRENT' if use_concurrent else 'SEQUENTIAL'}")
+        if use_concurrent:
+            print(f"   Max concurrent files: {actual_concurrent_files}")
+        print(f"   Total batch time: {total_time:.2f}s")
         print(f"   Average audio length: {avg_audio_length:.2f} min")
-        print(f"   Real-time factor: {real_time_factor:.1f}x")
+        print(f"   Real-time factor: {real_time_factor:.1f}x (total audio vs wall-clock)")
         print(f"   Transcribable minutes/hour: {transcribable_minutes_per_hour:.1f}")
-        print(f"   Files/hour: {files_per_hour:.1f}")
+        print(f"   🚀 Files/hour: {files_per_hour:.1f} (CORRECTED for concurrency)")
     
     print(f"\n🏁 Batch completed:")
     print(f"   Results list length: {len(results)}")

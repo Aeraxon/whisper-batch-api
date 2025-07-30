@@ -36,6 +36,17 @@ class APIConfig:
     port: int
     max_batch_size: int
 
+@dataclass
+class ConcurrentProcessingConfig:
+    enabled: bool
+    max_concurrent_files: int
+    adaptive_batching: bool
+    vram_threshold: float
+    auto_gpu_scaling: bool
+    base_model_vram_gb: float
+    overhead_per_file_gb: float
+    safety_buffer_gb: float
+
 class WhisperConfigManager:
     def __init__(self, config_path="whisper_config.yaml"):
         self.config_path = Path(config_path)
@@ -51,6 +62,19 @@ class WhisperConfigManager:
         self.language = LanguageConfig(**self.config['language'])
         self.output = OutputConfig(**self.config['output'])
         self.api = APIConfig(**self.config['api'])
+        
+        # Handle concurrent processing config (with defaults for backward compatibility)
+        concurrent_config = self.config.get('concurrent_processing', {
+            'enabled': False,
+            'max_concurrent_files': 4,
+            'adaptive_batching': True,
+            'vram_threshold': 0.8,
+            'auto_gpu_scaling': True,
+            'base_model_vram_gb': 4.7,
+            'overhead_per_file_gb': 0.4,
+            'safety_buffer_gb': 1.0
+        })
+        self.concurrent_processing = ConcurrentProcessingConfig(**concurrent_config)
         
     def _load_config(self) -> Dict:
         """Load YAML config file"""
@@ -91,6 +115,26 @@ class WhisperConfigManager:
     def get_output_directory(self) -> str:
         """Get the configured output directory"""
         return self.output.directory
+    
+    def is_concurrent_processing_enabled(self) -> bool:
+        """Check if concurrent processing is enabled"""
+        return self.concurrent_processing.enabled
+    
+    def get_max_concurrent_files(self) -> int:
+        """Get maximum concurrent files setting"""
+        return self.concurrent_processing.max_concurrent_files
+    
+    def is_adaptive_batching_enabled(self) -> bool:
+        """Check if adaptive batching is enabled"""
+        return self.concurrent_processing.adaptive_batching
+    
+    def get_vram_threshold(self) -> float:
+        """Get VRAM threshold for concurrent processing"""
+        return self.concurrent_processing.vram_threshold
+    
+    def is_auto_gpu_scaling_enabled(self) -> bool:
+        """Check if automatic GPU scaling is enabled"""
+        return self.concurrent_processing.auto_gpu_scaling
     
     def is_model_supported(self, model_name: str) -> bool:
         """Check if model is supported"""
